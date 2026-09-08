@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Vallenta Studio (VS Code extension)
+    url: https://github.com/Vallenta/Studio/issues
+    about: Launching the designer from VS Code, the Form Designer settings card, or anything else on the extension side belongs there rather than here.
+  - name: Email
+    url: mailto:info@vallenta.de
+    about: Anything that does not fit a template.

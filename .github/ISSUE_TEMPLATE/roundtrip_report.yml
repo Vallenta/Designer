@@ -1,0 +1,78 @@
+name: Round-Trip Report
+description: Saving a form changed bytes that were not edited
+title: "[Round-trip]: "
+labels: ["bug", "round-trip"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Loading a form and saving it again must reproduce the file byte for byte.
+        A report that shows the difference is enough to act on, even without steps.
+
+  - type: input
+    id: designer-version
+    attributes:
+      label: Designer Version
+      description: Right-click VallentaDesigner.exe, then Properties, then Details.
+      placeholder: "0.8.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: delphi-release
+    attributes:
+      label: Delphi release the designer was built against
+      description: Delphi 11.0 through 11.3 all report 22.0. Choose the last option only if Core.Settings.pas was edited to accept a release not listed.
+      options:
+        - Delphi 11 Alexandria (22.0)
+        - Delphi 12 Athens (23.0)
+        - Delphi 13 Florence (37.0)
+        - Other, with Core.Settings.pas modified to add the release
+    validations:
+      required: true
+
+  - type: dropdown
+    id: edited
+    attributes:
+      label: Was anything edited before saving?
+      options:
+        - "No: the file was opened and saved untouched"
+        - "Yes: an edit was made, and the difference goes beyond it"
+    validations:
+      required: true
+
+  - type: textarea
+    id: difference
+    attributes:
+      label: What changed
+      description: The differing lines, or the output of a diff between the file before and after. This is the most useful field in the form.
+      render: diff
+    validations:
+      required: true
+
+  - type: textarea
+    id: form-file
+    attributes:
+      label: Form File
+      description: The .dfm before saving, reduced to the smallest form that still shows the difference. Optional, and please do not paste a form whose contents are confidential.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: packages
+    attributes:
+      label: Third-party packages involved
+      description: Optional. The component suite the affected components come from, if any.
+      placeholder: "TeeChart, DevExpress, ..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: messages
+    attributes:
+      label: Messages Pane
+      description: Optional. A class that could not be loaded is reported here, and it often explains the difference.
+      render: text
+    validations:
+      required: false

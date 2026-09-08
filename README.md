@@ -4,6 +4,8 @@
 
 A visual form designer for `.dfm` files — the form editor of **Vallenta Studio**
 
+**[Features](#what-it-does) · [Build](#build) · [Install](#install-and-configure-in-vallenta-studio) · [Changelog](CHANGELOG.md) · [Report an issue](../../issues/new/choose)**
+
 Vallenta Designer opens a `.dfm` in a designer window with a component palette, an object
 inspector and a messages pane. Components can be placed, selected, moved, resized and deleted,
 their properties edited, and the file is written back in the exact text format the IDE

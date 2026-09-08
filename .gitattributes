@@ -11,9 +11,10 @@
 # follows the *.dfm rule above and overrides it for this directory.
 fixtures/** -text
 
-# Documents and build scripts.
+# Documents, build scripts and the GitHub configuration.
 *.md  text eol=lf
 *.ps1 text eol=lf
+*.yml text eol=lf
 
 # Binary assets.
 *.png binary

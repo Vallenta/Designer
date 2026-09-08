@@ -1,0 +1,47 @@
+name: Question
+description: Ask a question about using or building the designer
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The README covers requirements, building and the Vallenta Studio setup;
+        docs/architecture.md covers how the designer works internally. The answer may
+        already be in one of them.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: Already tried
+      description: Documentation read, settings checked, what happened.
+    validations:
+      required: false
+
+  - type: input
+    id: designer-version
+    attributes:
+      label: Designer Version
+      placeholder: "0.8.0.0"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: delphi-release
+    attributes:
+      label: Delphi release
+      description: Delphi 11.0 through 11.3 all report 22.0.
+      options:
+        - Delphi 11 Alexandria (22.0)
+        - Delphi 12 Athens (23.0)
+        - Delphi 13 Florence (37.0)
+        - Other, with Core.Settings.pas modified to add the release
+    validations:
+      required: false

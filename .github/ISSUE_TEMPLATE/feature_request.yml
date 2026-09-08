@@ -1,0 +1,43 @@
+name: Feature Request
+description: Suggest a new feature or an improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describing the problem is more useful than describing the solution. The designer
+        reads and writes the .dfm file only; edits to .pas source are performed by
+        Vallenta Studio, so a request about source editing belongs in that repository.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is missing, or what is harder than it should be?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How this would work in the designer.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Other approaches, and why they fall short.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Mockups, links, related issues.
+    validations:
+      required: false

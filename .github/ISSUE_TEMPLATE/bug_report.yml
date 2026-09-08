@@ -1,0 +1,101 @@
+name: Bug Report
+description: Report a problem with Vallenta Designer
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The fields below are what makes a report reproducible. If saving a form changed
+        bytes that were not edited, use the **Round-Trip Report** template instead.
+
+  - type: input
+    id: designer-version
+    attributes:
+      label: Designer Version
+      description: Right-click VallentaDesigner.exe, then Properties, then Details.
+      placeholder: "0.8.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: delphi-release
+    attributes:
+      label: Delphi release the designer was built against
+      description: The designer loads only the design packages of the release it was compiled with, so this decides which packages it can see. Delphi 11.0 through 11.3 all report 22.0. Choose the last option only if Core.Settings.pas was edited to accept a release not listed, and name that release under Additional Context.
+      options:
+        - Delphi 11 Alexandria (22.0)
+        - Delphi 12 Athens (23.0)
+        - Delphi 13 Florence (37.0)
+        - Other, with Core.Settings.pas modified to add the release
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: Operating System
+      placeholder: "Windows 11 24H2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: The exact steps that trigger the problem, numbered.
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: messages
+    attributes:
+      label: Messages Pane
+      description: The contents of the messages pane, which holds the session log and this document's own entries. There is no log file to attach.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: form-file
+    attributes:
+      label: Form File
+      description: The .dfm the problem occurs on, reduced to the smallest form that still shows it. Optional, and please do not paste a form whose contents are confidential.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: packages
+    attributes:
+      label: Third-party packages involved
+      description: Optional. The component suite the affected components come from, if any.
+      placeholder: "TeeChart, DevExpress, ..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Screenshots, related issues, anything else that helps.
+    validations:
+      required: false
