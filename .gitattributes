@@ -1,0 +1,20 @@
+# Delphi sources and form resources are CRLF in the working tree on every
+# platform: that is what the IDE writes and expects to read back.
+*.pas   text eol=crlf
+*.dpr   text eol=crlf
+*.dproj text eol=crlf
+*.props text eol=crlf
+*.dfm   text eol=crlf
+
+# Fixture bytes are what the round-trip test compares against the writer's
+# output. Stored and checked out verbatim, so git never rewrites one. This rule
+# follows the *.dfm rule above and overrides it for this directory.
+fixtures/** -text
+
+# Documents and build scripts.
+*.md  text eol=lf
+*.ps1 text eol=lf
+
+# Binary assets.
+*.png binary
+*.ico binary

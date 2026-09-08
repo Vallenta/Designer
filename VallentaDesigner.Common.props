@@ -1,0 +1,40 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <!--
+      Settings shared by the designer and its test suite, and the one place
+      that pins down the Delphi release the build belongs to.
+
+      Imported as the FIRST element of each .dproj: MSBuild evaluates in
+      document order, and the output paths below are set further down the
+      project file.
+
+      The release is carried by $(ProductVersion) - 22.0, 23.0, 37.0 - and not
+      by a name of our own. That is not cosmetic. The IDE expands variables in
+      the path it launches for Run and Debug using its own environment-variable
+      list, not MSBuild: a name it does not know becomes %Name% and the launch
+      fails with "Could not find program", even though the build itself
+      succeeded. $(ProductVersion) is on that list; a custom name is not.
+
+      The IDE supplies ProductVersion itself. rsvars.bat does not, and
+      CodeGear.Common.Targets only defines it at the very end of the .dproj -
+      far too late for the output paths - so it is seeded here from $(BDS),
+      which is set in every build context. The later definition overwrites this
+      one with the same value.
+    -->
+    <PropertyGroup>
+        <ProductVersion Condition="'$(ProductVersion)'==''">$([System.IO.Path]::GetFileName($(BDS.TrimEnd('\'))))</ProductVersion>
+    </PropertyGroup>
+
+    <!--
+      The WindowsModern style family ships only with Delphi 13. Delphi 11 and
+      12 carry the Windows10 family instead, and naming a style the release
+      does not have fails the resource step before the compiler ever runs.
+    -->
+    <PropertyGroup Condition="'$(ProductVersion)'=='37.0'">
+        <DesignerStyleName>Windows Modern</DesignerStyleName>
+        <DesignerStyleFile>WindowsModern.vsf</DesignerStyleFile>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(ProductVersion)'!='37.0'">
+        <DesignerStyleName>Windows10</DesignerStyleName>
+        <DesignerStyleFile>Windows10.vsf</DesignerStyleFile>
+    </PropertyGroup>
+</Project>

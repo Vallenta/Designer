@@ -1,0 +1,41 @@
+# Build output. The designer and the suite each write below their own project
+# directory, one subtree per platform, configuration and Studio release.
+bin/
+dcu/
+
+# Compiler and linker products, wherever they land.
+*.dcu
+*.dcp
+*.bpl
+*.res
+*.exe
+*.dll
+*.o
+*.obj
+*.drc
+*.map
+*.rsm
+*.tds
+*.otares
+
+# IDE state. __history and __recovery are the editor's own backups; .dsk, .local,
+# .identcache and .stat are per-machine and change on every session.
+__history/
+__recovery/
+*.~*~
+*.dsk
+*.local
+*.identcache
+*.stat
+*.tvsconfig
+
+# Editor and agent files. CLAUDE.md is the local agent brief and stays out of the
+# published repository.
+.vscode/
+.idea/
+.claude/
+CLAUDE.md
+
+# Runtime artifacts the designer writes beside itself or into the working tree.
+*.log
+*.ini
