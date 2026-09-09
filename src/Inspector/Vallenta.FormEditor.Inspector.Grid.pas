@@ -51,12 +51,20 @@ type
     FPreviousModalBegin: TNotifyEvent;
     FMethodsRow: TPropertyRow;
     FMethodsAsked: Integer;
+    FPressAt: Cardinal;
+    FPressSpot: TPoint;
+    FArmedRow: Integer;
     procedure ModalSeen(Sender: TObject);
     procedure HideEditors;
     procedure ShowEditorFor(Row: TPropertyRow);
     procedure AskForMethods(Row: TPropertyRow);
     procedure MethodsArrived(ARequest: Integer; const AMethods: TArray<string>);
     procedure ActivateRow(Row: TPropertyRow);
+    procedure ActivateValueCell;
+    function EditorHoldsNewText: Boolean;
+    procedure ComboDoubleClicked(Sender: TObject);
+    procedure NotePress;
+    function PressPairs: Boolean;
     procedure ApplyEditor;
     procedure ApplyRowValue(Row: TPropertyRow; const Text: string);
     procedure ReportEditFailure(Row: TPropertyRow; const AMessage: string);
@@ -72,12 +80,21 @@ type
     // TCustomGrid.WMCommand acts only on its own inplace editor, so without
     // this the drop-down stays unsized and the ellipsis click is unreported.
     procedure WMCommand(var Message: TWMCommand); message WM_COMMAND;
+    // Reassembles the one double-click Windows cannot report: the press that
+    // opens the overlay editor over a value cell lands on the grid and the
+    // press after it on the editor, and a pair is only ever reported for two
+    // presses on the same window. Every other double-click over the editor is
+    // Windows' own and arrives as the editor's OnDblClick.
+    procedure WMParentNotify(var Message: TWMParentNotify);
+      message WM_PARENTNOTIFY;
     procedure DrawCell(ACol, ARow: Integer; ARect: TRect;
       AState: TGridDrawState); override;
     // Reapplies the control font to the canvas before the inherited paint.
     // Without it the cells paint in a twice-scaled font once the grid has been
     // reparented into a window at another DPI.
     procedure Paint; override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState;
+      X, Y: Integer); override;
     procedure Click; override;
     procedure DblClick; override;
     procedure Resize; override;
@@ -179,6 +196,7 @@ begin
   FCombo.OnKeyDown := EditKeyDown;
   FCombo.OnExit := EditorExit;
   FCombo.OnSelect := ComboSelected;
+  FCombo.OnDblClick := ComboDoubleClicked;
 
   FEllipsis := TButton.Create(Self);
   FEllipsis.Parent := Self;
@@ -186,6 +204,7 @@ begin
   FEllipsis.Caption := '...';
   FEllipsis.TabStop := False;
   FEllipsis.OnClick := EllipsisClicked;
+  FArmedRow := -1;
 end;
 
 procedure TPropertyGrid.ShowModel(AModel: TPropertyModel);
@@ -323,6 +342,64 @@ begin
     ApplyEditor;
 end;
 
+procedure TPropertyGrid.WMParentNotify(var Message: TWMParentNotify);
+var
+  Armed: Integer;
+begin
+  inherited;
+  if Message.Event <> WM_LBUTTONDOWN then
+    Exit;
+  // Disarmed before anything is decided, so that one arming can answer at most
+  // one press: a second notification for the same press, and the press after a
+  // press that did not pair, both find the grid disarmed.
+  Armed := FArmedRow;
+  FArmedRow := -1;
+  if (Armed <> Row) or (FEditingRow = nil) or
+     (FEditingRow.Kind <> prkEvent) then
+    Exit;
+  if PressPairs then
+    ActivateValueCell;
+end;
+
+procedure TPropertyGrid.ComboDoubleClicked(Sender: TObject);
+begin
+  FArmedRow := -1;
+  if (FEditingRow <> nil) and (FEditingRow.Kind = prkEvent) then
+    ActivateValueCell;
+end;
+
+procedure TPropertyGrid.MouseDown(Button: TMouseButton; Shift: TShiftState;
+  X, Y: Integer);
+begin
+  inherited MouseDown(Button, Shift, X, Y);
+  if Button = mbLeft then
+    NotePress;
+end;
+
+procedure TPropertyGrid.NotePress;
+begin
+  FPressAt := GetMessageTime;
+  FPressSpot := Mouse.CursorPos;
+  FArmedRow := -1;
+end;
+
+function TPropertyGrid.PressPairs: Boolean;
+var
+  Spot: TPoint;
+  Elapsed: Cardinal;
+begin
+  Spot := Mouse.CursorPos;
+  // Cardinal, so that the wrap of GetMessageTime every 49.7 days subtracts to
+  // a small elapsed time rather than to a negative one.
+  Elapsed := Cardinal(GetMessageTime) - FPressAt;
+  // The system's own double-click test: inside the double-click time and
+  // inside the double-click rectangle centred on the earlier press. A press
+  // meant to put the caret in the editor is slower or further off than that.
+  Result := (Elapsed <= GetDoubleClickTime) and
+    (Abs(Spot.X - FPressSpot.X) * 2 <= GetSystemMetrics(SM_CXDOUBLECLK)) and
+    (Abs(Spot.Y - FPressSpot.Y) * 2 <= GetSystemMetrics(SM_CYDOUBLECLK));
+end;
+
 procedure TPropertyGrid.Click;
 var
   Cell: TGridCoord;
@@ -350,6 +427,7 @@ end;
 procedure TPropertyGrid.HideEditors;
 begin
   FEditingRow := nil;
+  FArmedRow := -1;
   FMethodsRow := nil;
   FEdit.Visible := False;
   FCombo.Visible := False;
@@ -410,6 +488,10 @@ begin
     FCombo.Top := Cell.Top + (Cell.Height - FCombo.Height) div 2;
     FCombo.Width := Cell.Width;
     FCombo.Visible := True;
+    // Arms the press that is opening this editor, and only it: the press after
+    // it is the second half of a double-click on the value cell.
+    if Row.Kind = prkEvent then
+      FArmedRow := Self.Row;
     FCombo.SetFocus;
     AskForMethods(Row);
   end
@@ -494,6 +576,33 @@ procedure TPropertyGrid.DblClick;
 begin
   inherited DblClick;
   ActivateRow(RowAt(Row));
+end;
+
+function TPropertyGrid.EditorHoldsNewText: Boolean;
+begin
+  Result := False;
+  if FEditingRow = nil then
+    Exit;
+  if FCombo.Visible then
+    Result := FCombo.Text <> FEditingRow.ValueText
+  else if FEdit.Visible then
+    Result := FEdit.Text <> FEditingRow.ValueText;
+end;
+
+procedure TPropertyGrid.ActivateValueCell;
+var
+  Target: TPropertyRow;
+begin
+  Target := FEditingRow;
+  // A handler name typed into the editor and not yet entered is written
+  // rather than discarded: the write wires the event and requests the
+  // handler, so activating the row on top of it would add nothing.
+  if EditorHoldsNewText then
+  begin
+    ApplyEditor;
+    Exit;
+  end;
+  ActivateRow(Target);
 end;
 
 procedure TPropertyGrid.ReportEditFailure(Row: TPropertyRow;

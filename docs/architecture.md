@@ -1500,6 +1500,16 @@ applies, Escape reverts, and moving focus away applies. The editing row is
 released before the write, so that a focus change caused by the write cannot
 re-enter the apply path.
 
+A double-click activates the row from either column. On an event row it opens
+the wired handler, or, where none is wired, wires the default name and requests
+the handler. One double-click over the value cell is not Windows' to report —
+the press that opens the overlay editor lands on the grid and the press after it
+on the editor — and only that one is reassembled, from `WM_PARENTNOTIFY` (see
+Constraints and Pitfalls). Every other double-click over the editor arrives as
+the editor's own `OnDblClick`. A handler name typed into the editor and not yet
+entered is written rather than discarded: the write wires the event and requests
+the handler, which leaves nothing to activate on top of it.
+
 ## Palette and Component Creation
 
 **One registry, two consumers.** `Core.ComponentRegistry` holds the supported
@@ -2080,6 +2090,19 @@ stage is exercised deliberately.
 - **A set constructor cannot hold window message or system command constants.**
   They exceed the range a set element may have. Use a `case` statement; the
   compiler error points at the set, not at the cause.
+- **Windows pairs a double-click only with a press on the same window.** The
+  inspector's first press on a value cell opens the overlay editor over that
+  cell, so the second press reaches the editor and neither window is told of a
+  double-click. `TPropertyGrid` reassembles that one gesture from
+  `WM_PARENTNOTIFY`, which carries every press over a child window and arrives
+  before the child processes it, by applying the system's own test —
+  `GetDoubleClickTime` and the `SM_CXDOUBLECLK` rectangle — against the press
+  that opened the editor. Every other double-click over the editor is Windows'
+  own and arrives as `OnDblClick`, so only the press that opens an editor arms
+  the test, and the next press disarms it whatever it decides. Re-arming on
+  each press that failed the test instead makes two clicks activate the row at
+  any spacing: a repeated notification for one press, or the press after a
+  press that missed, then pairs against a moment ago.
 - **Never shadow a stored property of the designed root.** The window title
   belongs to the shell precisely so a form's own `Caption` stays untouched and
   stays editable in the inspector; a frame's host is placed around it so its
