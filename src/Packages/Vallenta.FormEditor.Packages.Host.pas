@@ -15,7 +15,8 @@ unit Vallenta.FormEditor.Packages.Host;
 // State is held in unit globals without synchronization and a load runs
 // package initialization that touches VCL globals, so every entry point is
 // main-thread only. Log entries buffer in this unit until ReportInto attaches
-// a target.
+// a target. During a load, Application.OnException is replaced so that an
+// exception the VCL handles on its own is logged rather than shown.
 
 interface
 
@@ -148,6 +149,14 @@ function WritePackageSettings(
 function InspectCandidate(const APath: string;
   AOrigin: TPackageOrigin): TPackageStatus;
 
+// The names among AExports that are the Register procedure of a unit named in
+// AUnits: '@', the unit name with '@' for each dot, then '@Register$qqrv',
+// compared case-insensitively because the compiler folds the unit's spelling
+// in mangled names. A method named Register ends the same way and is not
+// returned. The result keeps the order of AExports.
+function UnitRegisterExports(
+  const AExports, AUnits: TArray<string>): TArray<string>;
+
 implementation
 
 uses
@@ -182,8 +191,8 @@ const
   ExcludeValue = 'Exclude';
   // Arbitrary; only the value name is read back.
   SwitchedOffMark = 1;
-  // Suffix of a unit's mangled Register export; the unit-name part varies, so
-  // exports are matched on this ending.
+  // Ending of a unit's mangled Register export; the unit-name part is
+  // constructed per contained unit.
   RegisterExportSuffix = '@Register$qqrv';
   // Sentinel page for RegisterNoIcon captures; they get no palette entry.
   NoIconPage = '(no icon)';
@@ -652,13 +661,41 @@ begin
     LogEntry(lsInfo, '  contains ' + InfoContains);
 end;
 
-function FindRegisterExports(AModule: HMODULE): TArray<string>;
+type
+  TUnitNames = TArray<string>;
+  PUnitNames = ^TUnitNames;
+
+procedure CollectUnitName(const Name: string; NameType: TNameType; Flags: Byte;
+  Param: Pointer);
+begin
+  if NameType = ntContainsUnit then
+    PUnitNames(Param)^ := PUnitNames(Param)^ + [Name];
+end;
+
+// The units the package's own information lists as contained, SysInit among
+// them.
+function ContainedUnits(AModule: HMODULE): TArray<string>;
 var
-  ExportName: string;
+  Flags: Integer;
 begin
   Result := [];
-  for ExportName in ExportedNames(AModule) do
-    if EndsStr(RegisterExportSuffix, ExportName) then
+  GetPackageInfo(AModule, @Result, Flags, CollectUnitName);
+end;
+
+function UnitRegisterExports(
+  const AExports, AUnits: TArray<string>): TArray<string>;
+var
+  Wanted: TArray<string>;
+  I: Integer;
+  ExportName: string;
+begin
+  SetLength(Wanted, Length(AUnits));
+  for I := 0 to High(AUnits) do
+    Wanted[I] := '@' + ReplaceStr(AUnits[I], '.', '@') + RegisterExportSuffix;
+  Result := [];
+  for ExportName in AExports do
+    if EndsStr(RegisterExportSuffix, ExportName) and
+      MatchText(ExportName, Wanted) then
       Result := Result + [ExportName];
 end;
 
@@ -720,6 +757,35 @@ begin
     LogEntry(lsWarn, '    ' + Frame);
 end;
 
+type
+  // Target of Application.OnException while a package loads. An exception the
+  // VCL handles on its own - in an OnCreate handler, a window procedure or
+  // the message loop - is logged with its stack instead of being shown.
+  TLoadExceptionSink = class
+    procedure HandleException(Sender: TObject; E: Exception);
+  end;
+
+var
+  ExceptionSink: TLoadExceptionSink;
+
+procedure TLoadExceptionSink.HandleException(Sender: TObject; E: Exception);
+var
+  Source, Where: string;
+begin
+  if Sender <> nil then
+    Source := Sender.ClassName
+  else
+    Source := 'the VCL';
+  Where := '';
+  if Capturing >= 0 then
+    Where := Format(' while %s loaded',
+      [ExtractFileName(Packages[Capturing].Path)]);
+  LogEntry(lsWarn, Format('  %s raised %s: %s%s - the VCL handled it outside ' +
+    'the Register call and the load went on',
+    [Source, E.ClassName, E.Message, Where]));
+  ReportFailureDetail(E);
+end;
+
 procedure ReportRegisterFailure(AIndex: Integer; const AProcName: string;
   E: Exception);
 begin
@@ -732,11 +798,21 @@ end;
 
 procedure CallRegisterProcs(AIndex: Integer);
 var
-  ProcNames: TArray<string>;
+  Exported, ProcNames: TArray<string>;
   ProcName: string;
   Proc: procedure;
+  Methods: Integer;
 begin
-  ProcNames := FindRegisterExports(Packages[AIndex].Module);
+  Exported := ExportedNames(Packages[AIndex].Module);
+  ProcNames := UnitRegisterExports(Exported,
+    ContainedUnits(Packages[AIndex].Module));
+  Methods := -Length(ProcNames);
+  for ProcName in Exported do
+    if EndsStr(RegisterExportSuffix, ProcName) then
+      Inc(Methods);
+  if Methods > 0 then
+    LogEntry(lsInfo, Format('  %d export(s) named Register are methods of ' +
+      'classes, not unit procedures, and are not called', [Methods]));
   if Length(ProcNames) = 0 then
   begin
     LogEntry(lsWarn, '  the package exports no Register procedure');
@@ -1025,6 +1101,7 @@ var
   Names: TArray<string>;
   Missing: string;
   IconCount: Integer;
+  Previous: TExceptionEvent;
 begin
   Package.Path := ACandidate.Path;
   Package.Module := 0;
@@ -1042,6 +1119,8 @@ begin
   // package that raises while it initializes, unmapping the modules the
   // frames of that exception name.
   SetStackCapture(True);
+  Previous := Application.OnException;
+  Application.OnException := ExceptionSink.HandleException;
   try
     try
       // The rollback drops the group before unloading what the attempt
@@ -1118,6 +1197,7 @@ begin
       end;
     end;
   finally
+    Application.OnException := Previous;
     SetStackCapture(False);
     Capturing := -1;
   end;
@@ -1520,9 +1600,11 @@ end;
 
 initialization
   HostLog := TDesignLog.Create;
+  ExceptionSink := TLoadExceptionSink.Create;
 
 finalization
   FreeAndNil(DesignNotifications);
+  FreeAndNil(ExceptionSink);
   FreeAndNil(HostLog);
 
 end.

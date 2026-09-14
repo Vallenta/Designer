@@ -284,6 +284,7 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | `Tests.DesignerDiscovery` | How a package reaches the designer from a component it holds: `FindRootDesigner` up the owner chain, the `IDesignerNotify` query, and the nil a component outside `csDesigning` produces |
 | `Tests.IdeServices` | The `BorlandIDEServices` stub as a design package queries it during unit initialization and `Register`: the menu, action list, image list and toolbars, and the about-box calls |
 | `Tests.Diagnostics` | The stack capture and address naming in `Packages.Stacks`, and the export table `Packages.PeImage` reads. Win32 with runtime packages only |
+| `Tests.RegisterExports` | `UnitRegisterExports` in `Packages.Host`: which of a package's exports are called as a unit's `Register` procedure. The mangled name a dotted unit name produces, and the methods, generic instantiations and units of other packages that end in the same suffix and are left out. The export names are literals in the test; no package is loaded |
 | `Tests.Palette` | The palette content model, the search filter and the favourites store. The ordering cases assert that each neighbouring pair is in order rather than compare against a fixed list, because the packages a run loaded decide the content; the favourites cases write under a `Tests` subkey of the settings root, never the key the product reads |
 
 `VallentaDesigner.dpr` sits above all of it: the argument file is expanded and
@@ -1737,13 +1738,23 @@ taking those on collides over classes nothing here could use. What the palette
 offers is checked separately, so a page naming a class out of a module that was
 not walked still cannot be offered unreadably.
 
-**`Register` procedures are found in the export table, never by name.** Their
-mangled names normalize the unit's spelling, so a name constructed from the unit
-names a package reports would not be present. The export directory is walked and
-every entry ending in the registration suffix is called. A unit whose name
-contains dots mangles into several segments, which the suffix scan covers and a
-constructed name would not; a static dump of the file misses these exports
-entirely, so the walk runs on the loaded module.
+**`Register` procedures are found in the export table, under the name each
+contained unit mangles to.** A unit's `Register` procedure is exported as `@`,
+the unit name with `@` in place of every dot, then `@Register$qqrv`: a unit named
+`Vendor.Ide.Reg` exports `@Vendor@Ide@Reg@Register$qqrv`. The compiler normalizes
+the capitalization of the unit name in that form, so the comparison is
+case-insensitive. The unit list comes from the package's own information, and the
+export directory is walked on the loaded module — a static dump of the file misses
+these exports entirely.
+
+**Matching on the suffix alone is not enough.** A class method or an instance
+method named `Register` is exported under the same ending, and a design package
+may export dozens of them. Called as a parameterless procedure, such a method
+receives no `Self` and dereferences whatever the calling convention leaves in its
+place, which raises an access violation; where the method does not read `Self`,
+it runs a class initializer inside a host that is not the IDE it was written for.
+An export under the suffix that no contained unit accounts for is counted in the
+log and not called.
 
 **The hooks are installed before anything of a package runs.** Registering
 components with no hook in place raises, and a package registers as readily from
@@ -1839,6 +1850,16 @@ its registrations over several procedures, and the palette of one depends on the
 others being called. It is a poor diagnostic, though — a procedure that raises
 has usually requested something that is not answered here, and the message names
 the call.
+
+**An exception the VCL handles on its own is logged, not shown.** A form or data
+module constructed during a load passes an exception raised in its `OnCreate`
+handler to `Application.HandleException` and carries on; a window procedure and
+the message loop do the same. None of those reach the guard around the `Register`
+call, and with no `OnException` handler assigned `HandleException` displays a
+message box and leaves nothing in the log. `Packages.Host` therefore assigns
+`Application.OnException` for the duration of each load and restores the previous
+handler afterwards. The entry names the object that raised, the package being
+loaded at the time, and the captured stack.
 
 **A class name is claimed once.** A name already known, from the built-in table
 or an earlier package, leaves the later entry off the palette with a warning. Two
@@ -2192,6 +2213,16 @@ stage is exercised deliberately.
   `Palette.Frame.BuildButtons` suppresses drawing across the rebuild and sets
   `Data` first. This went unseen while every rebuild happened on a window still
   being built, where the palette has no handle and never paints.
+- **A pure move leaves the styled host's mouse routing behind.** The VCL style
+  frames the embedded form with a window region, and Windows keeps routing mouse
+  input through the placement that region had when it was set: a resize or a new
+  region refreshes it, a move does not. So the frame's sizing edges and the
+  form's double click answer at the old screen position after the window is
+  moved, a pane beside the surface is resized, the surface is scrolled or the
+  window is activated from elsewhere. `Shell.MainWindow` re-applies the frame
+  with `SWP_FRAMECHANGED` (`RenewInputMapping`) at each of those points;
+  resizing the whole window happens to do the same, which is why the symptom
+  seemed to clear on its own.
 - **`WS_EX_COMPOSITED` is not the answer here.** It was tried on the designer
   window, producing an endless repaint loop, and on the three pane frames,
   producing a quiet palette and inspector, a messages pane that then flickered
@@ -2211,13 +2242,3 @@ stage is exercised deliberately.
   exception is the service-refusal reporting described under Component Packages,
   which reports a fact about the machine the program is running on rather than
   about a defect being investigated.
-- **A pure move leaves the styled host's mouse routing behind.** The VCL style
-  frames the embedded form with a window region, and Windows keeps routing mouse
-  input through the placement that region had when it was set: a resize or a new
-  region refreshes it, a move does not. So the frame's sizing edges and the
-  form's double click answer at the old screen position after the window is
-  moved, a pane beside the surface is resized, the surface is scrolled or the
-  window is activated from elsewhere. `Shell.MainWindow` re-applies the frame
-  with `SWP_FRAMECHANGED` (`RenewInputMapping`) at each of those points;
-  resizing the whole window happens to do the same, which is why the symptom
-  seemed to clear on its own.

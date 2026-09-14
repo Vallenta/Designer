@@ -85,6 +85,7 @@
         <DCCReference Include="Vallenta.FormEditor.Tests.DesignHitTest.pas"/>
         <DCCReference Include="Vallenta.FormEditor.Tests.IdeServices.pas"/>
         <DCCReference Include="Vallenta.FormEditor.Tests.Diagnostics.pas"/>
+        <DCCReference Include="Vallenta.FormEditor.Tests.RegisterExports.pas"/>
         <DCCReference Include="Vallenta.FormEditor.Tests.ZOrder.pas"/>
         <DCCReference Include="Vallenta.FormEditor.Tests.Clipboard.pas"/>
         <BuildConfiguration Include="Base">
