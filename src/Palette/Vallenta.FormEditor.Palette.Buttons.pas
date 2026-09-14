@@ -91,6 +91,11 @@ type
     // Clears the remembered hot row and header. Must run before Categories is
     // cleared; both fields point at objects that Clear frees.
     procedure ForgetHot;
+    // The component row at a client point; nil on a category header and
+    // anywhere on a collapsed category. GetButtonAt is asked for an expanded
+    // category only: a point on a collapsed one must never resolve to one of
+    // its hidden rows.
+    function VisibleButtonAt(X, Y: Integer): TButtonItem;
     // Supplies the favourite kind of a component row; when unassigned no row
     // is a favourite.
     property OnItemKind: TPaletteItemKindEvent read FOnItemKind
@@ -260,12 +265,22 @@ begin
   end;
 end;
 
+function TPaletteButtons.VisibleButtonAt(X, Y: Integer): TButtonItem;
+var
+  Category: TButtonCategory;
+begin
+  Category := GetCategoryAt(X, Y);
+  if (Category = nil) or Category.Collapsed then
+    Exit(nil);
+  Result := GetButtonAt(X, Y, Category);
+end;
+
 function TPaletteButtons.ItemStarAt(X, Y: Integer): TButtonItem;
 var
   Item: TButtonItem;
 begin
   Result := nil;
-  Item := GetButtonAt(X, Y);
+  Item := VisibleButtonAt(X, Y);
   if (Item <> nil) and StarRect(Item.Bounds).Contains(Point(X, Y)) then
     Result := Item;
 end;
@@ -342,7 +357,7 @@ var
   Item: TButtonItem;
   Category: TButtonCategory;
 begin
-  Item := GetButtonAt(X, Y);
+  Item := VisibleButtonAt(X, Y);
   Category := nil;
   if Item = nil then
   begin

@@ -1557,7 +1557,9 @@ while painting rather than being handed a list.
 **The search box filters the model, not the buttons.** `TPaletteFilter` answers
 what a term matches; the frame debounces the box by 200 ms and records which
 categories were expanded before the search so they can be restored when it is
-cleared.
+cleared. Both tabs are rebuilt together from the model whenever the favourites,
+the search term or the loaded packages change, and each keeps the categories it
+had expanded across the rebuild.
 
 **Arming.** Clicking a palette item puts the designer into creation mode and
 leaves the button pressed. The palette control reports one click per press, so a

@@ -9,8 +9,11 @@ unit Vallenta.FormEditor.Palette.Frame;
 // Component palette pane over one TPaletteModel: a tab of every component
 // the attached designer can place and a tab of the favourites, each showing
 // one collapsible category per palette page and narrowed by the header's
-// search box. A click arms the designer for placement, a double click places
-// the component centered on the design surface. Main thread only.
+// search box. Both tabs are rebuilt together, through one path, whenever the
+// model, the search term or the favourites change; a rebuild keeps the
+// categories a tab had expanded. A click arms the designer for placement, a
+// double click places the component centered on the design surface. Main
+// thread only.
 //
 // Construction reads the component registry and picks the icon provider from
 // the package icons harvested so far, so the packages must be loaded first;
@@ -45,11 +48,11 @@ type
     HeaderPanel: TPanel;
   private
   type
-    // One tab: its buttons, and whether they need a rebuild after a change
-    // to the model, the search term or the favourites. Rebuilt when it shows.
+    // One tab: its buttons, and the captions of the categories it had
+    // expanded when a search began, put back when the search is cleared.
     TPaletteView = record
       Buttons: TPaletteButtons;
-      Stale: Boolean;
+      ExpandedBeforeSearch: TStringList;
     end;
   var
     FModel: TPaletteModel;
@@ -62,7 +65,6 @@ type
     FSearchTimer: TTimer;
     FCollapseAll: TSpeedButton;
     FExpandAll: TSpeedButton;
-    FExpandedBeforeSearch: TStringList;
     FDesigner: TFormDesigner;
     FArmedItem: TPaletteItem;
     FPlacedByDoubleClick: Boolean;
@@ -71,16 +73,14 @@ type
     procedure BuildViews;
     function NewView(const ACaption: string): TPaletteButtons;
     function FrontButtons: TPaletteButtons;
-    procedure BuildView(AIndex: Integer);
-    procedure RefreshFront(ARestoreExpanded: Boolean);
-    procedure MarkStale;
+    procedure ExpandedCaptions(AButtons: TPaletteButtons; AInto: TStrings);
+    procedure BuildView(AIndex: Integer; AExpanded: TStrings);
+    procedure RebuildViews(ARestoreBeforeSearch: Boolean);
     procedure FavouritesChanged;
-    procedure PageChanged(Sender: TObject);
     function HoldPainting(AButtons: TPaletteButtons): Boolean;
     procedure ResumePainting(AButtons: TPaletteButtons; AHeld: Boolean);
     procedure SetAllCollapsed(ACollapsed: Boolean);
     procedure CaptureExpanded;
-    procedure RestoreExpanded;
     procedure ApplySearch;
     procedure SearchChanged(Sender: TObject);
     procedure SearchTick(Sender: TObject);
@@ -170,11 +170,9 @@ begin
   FModel.BuildFromRegistry;
   FFilter := TPaletteFilter.Create;
   FFavourites := TPaletteFavourites.Create(SettingsKey(PaletteSettingsKey));
-  FExpandedBeforeSearch := TStringList.Create;
   BuildHeader;
   BuildViews;
-  MarkStale;
-  RefreshFront(False);
+  RebuildViews(False);
 end;
 
 destructor TPaletteFrame.Destroy;
@@ -187,8 +185,10 @@ begin
     FSearchTimer.Enabled := False;
   // The buttons reference the model's items; free them before the model.
   for I := Low(FViews) to High(FViews) do
+  begin
     FreeAndNil(FViews[I].Buttons);
-  FExpandedBeforeSearch.Free;
+    FreeAndNil(FViews[I].ExpandedBeforeSearch);
+  end;
   FFavourites.Free;
   FFilter.Free;
   FModel.Free;
@@ -254,9 +254,11 @@ begin
   FPages.Parent := Self;
   FPages.Align := alClient;
   for I := AllView to FavouritesView do
+  begin
     FViews[I].Buttons := NewView(ViewCaptions[I]);
+    FViews[I].ExpandedBeforeSearch := TStringList.Create;
+  end;
   FPages.ActivePageIndex := AllView;
-  FPages.OnChange := PageChanged;
 end;
 
 function TPaletteFrame.NewView(const ACaption: string): TPaletteButtons;
@@ -312,9 +314,22 @@ begin
   AButtons.Invalidate;
 end;
 
-// A paint during the rebuild reaches DrawButtonIcon for a button whose Data
-// is not assigned yet, so painting stays held for the whole loop.
-procedure TPaletteFrame.BuildView(AIndex: Integer);
+procedure TPaletteFrame.ExpandedCaptions(AButtons: TPaletteButtons;
+  AInto: TStrings);
+var
+  I: Integer;
+begin
+  AInto.Clear;
+  for I := 0 to AButtons.Categories.Count - 1 do
+    if not AButtons.Categories[I].Collapsed then
+      AInto.Add(AButtons.Categories[I].Caption);
+end;
+
+// A category starts expanded when its caption is in AExpanded or while a
+// search term is set, collapsed otherwise. A paint during the rebuild reaches
+// DrawButtonIcon for a button whose Data is not assigned yet, so painting
+// stays held for the whole loop.
+procedure TPaletteFrame.BuildView(AIndex: Integer; AExpanded: TStrings);
 var
   Buttons: TPaletteButtons;
   I, J: Integer;
@@ -342,7 +357,8 @@ begin
         begin
           Category := Buttons.Categories.Add;
           Category.Caption := Group.Caption;
-          Category.Collapsed := True;
+          Category.Collapsed := (FFilter.Term = '') and
+            (AExpanded.IndexOf(Group.Caption) < 0);
         end;
         Button := Category.Items.Add;
         Button.Data := Item;
@@ -354,37 +370,35 @@ begin
   finally
     ResumePainting(Buttons, Drawing);
   end;
-  FViews[AIndex].Stale := False;
 end;
 
-procedure TPaletteFrame.RefreshFront(ARestoreExpanded: Boolean);
-begin
-  BuildView(FPages.ActivePageIndex);
-  if FFilter.Term <> '' then
-    SetAllCollapsed(False)
-  else if ARestoreExpanded then
-    RestoreExpanded;
-end;
-
-procedure TPaletteFrame.MarkStale;
+// Both views go through the same rebuild at the same moment, so the tab that
+// is not showing is never in another state than the one that is. Each view
+// keeps the categories it had expanded; with ARestoreBeforeSearch it gets
+// back the ones recorded when the search began.
+procedure TPaletteFrame.RebuildViews(ARestoreBeforeSearch: Boolean);
 var
   I: Integer;
+  Expanded: TStringList;
 begin
   for I := Low(FViews) to High(FViews) do
-    FViews[I].Stale := True;
+    if ARestoreBeforeSearch then
+      BuildView(I, FViews[I].ExpandedBeforeSearch)
+    else
+    begin
+      Expanded := TStringList.Create;
+      try
+        ExpandedCaptions(FViews[I].Buttons, Expanded);
+        BuildView(I, Expanded);
+      finally
+        Expanded.Free;
+      end;
+    end;
 end;
 
 procedure TPaletteFrame.FavouritesChanged;
 begin
-  FViews[FavouritesView].Stale := True;
-  if FPages.ActivePageIndex = FavouritesView then
-    RefreshFront(False);
-end;
-
-procedure TPaletteFrame.PageChanged(Sender: TObject);
-begin
-  if FViews[FPages.ActivePageIndex].Stale then
-    RefreshFront(False);
+  RebuildViews(False);
 end;
 
 procedure TPaletteFrame.SetAllCollapsed(ACollapsed: Boolean);
@@ -405,31 +419,10 @@ end;
 
 procedure TPaletteFrame.CaptureExpanded;
 var
-  Buttons: TPaletteButtons;
   I: Integer;
 begin
-  Buttons := FrontButtons;
-  FExpandedBeforeSearch.Clear;
-  for I := 0 to Buttons.Categories.Count - 1 do
-    if not Buttons.Categories[I].Collapsed then
-      FExpandedBeforeSearch.Add(Buttons.Categories[I].Caption);
-end;
-
-procedure TPaletteFrame.RestoreExpanded;
-var
-  Buttons: TPaletteButtons;
-  Held: Boolean;
-  I: Integer;
-begin
-  Buttons := FrontButtons;
-  Held := HoldPainting(Buttons);
-  try
-    for I := 0 to Buttons.Categories.Count - 1 do
-      Buttons.Categories[I].Collapsed := FExpandedBeforeSearch.IndexOf(
-        Buttons.Categories[I].Caption) < 0;
-  finally
-    ResumePainting(Buttons, Held);
-  end;
+  for I := Low(FViews) to High(FViews) do
+    ExpandedCaptions(FViews[I].Buttons, FViews[I].ExpandedBeforeSearch);
 end;
 
 procedure TPaletteFrame.ApplySearch;
@@ -445,8 +438,7 @@ begin
     CaptureExpanded;
   Clearing := (Term = '') and (FFilter.Term <> '');
   FFilter.SetTerm(Term);
-  MarkStale;
-  RefreshFront(Clearing);
+  RebuildViews(Clearing);
 end;
 
 procedure TPaletteFrame.SearchChanged(Sender: TObject);
@@ -599,8 +591,7 @@ begin
   begin
     FSearchTimer.Enabled := False;
     FFilter.SetTerm(FSearch.Text);
-    MarkStale;
-    RefreshFront(False);
+    RebuildViews(False);
   end;
   for I := Low(FViews) to High(FViews) do
     FViews[I].Buttons.Enabled := FDesigner <> nil;
@@ -615,7 +606,8 @@ var
   I: Integer;
 begin
   // FModel.DropDynamicEntries frees items that FArmedItem and the button
-  // Data point at, so both are cleared before it runs.
+  // Data point at, so both are cleared before it runs; the rebuild then finds
+  // nothing expanded.
   ClearArmedState;
   for I := Low(FViews) to High(FViews) do
   begin
@@ -623,8 +615,7 @@ begin
     FViews[I].Buttons.Categories.Clear;
   end;
   FModel.DropDynamicEntries;
-  MarkStale;
-  RefreshFront(False);
+  RebuildViews(False);
 end;
 
 procedure TPaletteFrame.ButtonClicked(Sender: TObject; const Button: TButtonItem);
@@ -658,7 +649,7 @@ begin
     FPlacedByDoubleClick := False;
     Exit;
   end;
-  Item := TPaletteButtons(Sender).GetButtonAt(X, Y);
+  Item := TPaletteButtons(Sender).VisibleButtonAt(X, Y);
   if Item = nil then
     Exit;
   // Handled here rather than in ButtonClicked: OnButtonClicked reports one
