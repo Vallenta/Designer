@@ -2211,3 +2211,13 @@ stage is exercised deliberately.
   exception is the service-refusal reporting described under Component Packages,
   which reports a fact about the machine the program is running on rather than
   about a defect being investigated.
+- **A pure move leaves the styled host's mouse routing behind.** The VCL style
+  frames the embedded form with a window region, and Windows keeps routing mouse
+  input through the placement that region had when it was set: a resize or a new
+  region refreshes it, a move does not. So the frame's sizing edges and the
+  form's double click answer at the old screen position after the window is
+  moved, a pane beside the surface is resized, the surface is scrolled or the
+  window is activated from elsewhere. `Shell.MainWindow` re-applies the frame
+  with `SWP_FRAMECHANGED` (`RenewInputMapping`) at each of those points;
+  resizing the whole window happens to do the same, which is why the symptom
+  seemed to clear on its own.

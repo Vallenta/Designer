@@ -179,6 +179,10 @@ type
     // True inside the modal move/size loop; RenewInputMapping is skipped per
     // step there and run once on exit.
     FInSizeMove: Boolean;
+    // The window procedures displaced by SurfaceBoxWindowProc and
+    // HostWindowProc; the host's is put back before the host is freed.
+    FSurfaceBoxWindowProc: TWndMethod;
+    FHostWindowProc: TWndMethod;
     procedure BeginCoupling;
     procedure EndCoupling;
     procedure SettleFields;
@@ -229,6 +233,10 @@ type
     procedure WMWindowPosChanged(var Message: TWMWindowPosChanged);
       message WM_WINDOWPOSCHANGED;
     procedure RenewInputMapping;
+    procedure SurfaceBoxWindowProc(var Message: TMessage);
+    procedure HookHost;
+    procedure UnhookHost;
+    procedure HostWindowProc(var Message: TMessage);
     procedure UpdateActionStates;
     procedure DesignerContextMenu(Sender: TObject);
     procedure SurfaceVerbClicked(Sender: TObject);
@@ -561,6 +569,10 @@ begin
   FMessages.Parent := MessagesZone;
   FMessages.Align := alClient;
   FMessages.Attach(FSessionLog, FLog);
+
+  // Never taken off: the box is freed with this form.
+  FSurfaceBoxWindowProc := DesignSurfaceBox.WindowProc;
+  DesignSurfaceBox.WindowProc := SurfaceBoxWindowProc;
 end;
 
 function TMainDesignerForm.CurrentLayout: TDesignerLayout;
@@ -686,6 +698,7 @@ begin
   // The designer is freed before the host form that holds its hook.
   FreeAndNil(FDesigner);
   FreeAndNil(FIconSurface);
+  UnhookHost;
   FreeDesignDocument(FDocument);
 end;
 
@@ -719,10 +732,14 @@ begin
         FIconSurface.Attach(FDesigner);
       end;
   end;
+  HookHost;
+  RenewInputMapping;
 end;
 
-// Windows refreshes the region it routes mouse input through on a region set
-// or a resize, but not on a pure move; SWP_FRAMECHANGED re-applies it.
+// The VCL style frames the host with a window region, and Windows routes
+// mouse input through the placement that region had when it was set: a
+// resize or a new region refreshes it, a pure move of the host or of a window
+// above it does not. SWP_FRAMECHANGED has the frame set its region again.
 procedure TMainDesignerForm.RenewInputMapping;
 
   procedure Renew(AWindow: HWND);
@@ -758,6 +775,47 @@ begin
     Exit;
   if ((Message.WindowPos^.flags and SWP_NOMOVE) = 0) or
      ((Message.WindowPos^.flags and SWP_SHOWWINDOW) <> 0) then
+    RenewInputMapping;
+end;
+
+// The box carries the host along when a pane beside it changes size or the
+// layout is restored, and the host receives no message for that. A size loop
+// is left to WMExitSizeMove, as for the window itself.
+procedure TMainDesignerForm.SurfaceBoxWindowProc(var Message: TMessage);
+begin
+  FSurfaceBoxWindowProc(Message);
+  if (Message.Msg <> WM_WINDOWPOSCHANGED) or FInSizeMove or
+     not HandleAllocated or not IsWindowVisible(Handle) then
+    Exit;
+  if (TWMWindowPosChanged(Message).WindowPos^.flags and
+      (SWP_NOMOVE or SWP_NOSIZE)) <> (SWP_NOMOVE or SWP_NOSIZE) then
+    RenewInputMapping;
+end;
+
+procedure TMainDesignerForm.HookHost;
+begin
+  // A second hook on the same host would call itself.
+  if (FDocument.HostForm = nil) or Assigned(FHostWindowProc) then
+    Exit;
+  FHostWindowProc := FDocument.HostForm.WindowProc;
+  FDocument.HostForm.WindowProc := HostWindowProc;
+end;
+
+procedure TMainDesignerForm.UnhookHost;
+begin
+  if (FDocument.HostForm <> nil) and Assigned(FHostWindowProc) then
+    FDocument.HostForm.WindowProc := FHostWindowProc;
+  FHostWindowProc := nil;
+end;
+
+// Scrolling the box moves the host inside it. The renewal's own call passes
+// SWP_NOMOVE, so it does not come back through here.
+procedure TMainDesignerForm.HostWindowProc(var Message: TMessage);
+begin
+  FHostWindowProc(Message);
+  if (Message.Msg = WM_WINDOWPOSCHANGED) and HandleAllocated and
+     IsWindowVisible(Handle) and
+     ((TWMWindowPosChanged(Message).WindowPos^.flags and SWP_NOMOVE) = 0) then
     RenewInputMapping;
 end;
 
@@ -1228,6 +1286,8 @@ begin
       finally
         HoldPanesStill(False);
       end;
+      // After the hold: the new host was placed while the box did not redraw.
+      RenewInputMapping;
       // A restore does not reach DesignerModified, so the version counter is
       // advanced here.
       Inc(FVersion);
@@ -1386,6 +1446,9 @@ end;
 
 procedure TMainDesignerForm.FormActivate(Sender: TObject);
 begin
+  // A window raised from elsewhere may have been moved meanwhile without a
+  // message reaching this thread.
+  RenewInputMapping;
   if Assigned(FOnDocumentActivated) then
     FOnDocumentActivated(Self);
 end;
