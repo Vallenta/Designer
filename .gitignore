@@ -18,12 +18,14 @@ dcu/
 *.tds
 *.otares
 
-# IDE state. __history and __recovery are the editor's own backups; .dsk, .local,
-# .identcache and .stat are per-machine and change on every session.
+# IDE state. __history and __recovery are the editor's own backups; .dsk with its
+# .~dsk backup, .local, .identcache and .stat are per-machine and change on every
+# session.
 __history/
 __recovery/
 *.~*~
 *.dsk
+*.~dsk
 *.local
 *.identcache
 *.stat
