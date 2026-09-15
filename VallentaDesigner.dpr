@@ -79,13 +79,36 @@ uses
 
 {$R *.res}
 
+// Loads the style from the installed release instead of linking it: a linked
+// .vsf the release lacks fails the resource step.
+procedure ApplyDesignerStyle;
+const
+  // Preference order; WindowsModern.vsf ships only with Delphi 13.1 and later.
+  StyleFiles: array [0..1] of string = ('WindowsModern.vsf', 'Windows10.vsf');
+var
+  Directory, StyleFile, Path: string;
+begin
+  Directory := IdeCommonDirectory;
+  if Directory = '' then
+    Exit;
+  for StyleFile in StyleFiles do
+  begin
+    Path := Directory + '\Styles\' + StyleFile;
+    if FileExists(Path) and TStyleManager.IsValidStyle(Path) then
+    begin
+      TStyleManager.SetStyle(TStyleManager.LoadFromFile(Path));
+      Exit;
+    end;
+  end;
+end;
+
 procedure RunServe;
 var
   Listener: TCoreListener;
 begin
   if not ClaimCore then
     Exit;
-  TStyleManager.TrySetStyle(DesignerStyle);
+  ApplyDesignerStyle;
   Application.Initialize;
   Application.MainFormOnTaskbar := True;
 
@@ -177,7 +200,7 @@ begin
     RunServe
   else
     try
-      TStyleManager.TrySetStyle(DesignerStyle);
+      ApplyDesignerStyle;
       Application.Initialize;
       Application.MainFormOnTaskbar := True;
       if Length(Arguments) > 0 then

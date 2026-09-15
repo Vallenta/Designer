@@ -93,17 +93,20 @@ there, selected from `CompilerVersion`:
 |---|---|
 | `IdeVersion` | The version segment of the IDE's registry key and of its shared documents directory, for example `'23.0'` |
 | `PackageSuffix` | The `LIBSUFFIX` this release gives its packages — `'290'` in `rtl290.bpl`. Not derivable from `IdeVersion` |
-| `DesignerStyle` | The VCL style applied at startup, which must name the style inside the `.vsf` file the project links |
 | `SettingsRoot` | `Software\VallentaStudio\Designer\<IdeVersion>` below `HKEY_CURRENT_USER`, so the three releases keep their settings separate |
 
 An unrecognized `CompilerVersion` produces a `{$MESSAGE FATAL}` naming what to
 add, rather than a default that builds against the wrong package suffix.
 
-The style family differs by release: `Windows Modern` ships only with Delphi 13,
-11 and 12 carry `Windows10`. Naming a style the release does not have fails the
-resource step before the compiler runs, which is why the props file selects both
-the style name and the `.vsf` file, and `Core.Settings` repeats the name for the
-runtime call that applies it.
+The VCL style is not linked into the executable. `Windows Modern` ships only
+with Delphi 13.1 and later, and 13.0 reports the same `ProductVersion` and
+`CompilerVersion` as 13.1, so neither the props file nor `Core.Settings` can tell
+whether the release carries it; a linked `.vsf` the release lacks fails the
+resource step before the compiler runs. The program therefore loads the style at
+startup from the `Styles` folder of the release's shared documents directory,
+`$(BDSCOMMONDIR)`: `WindowsModern.vsf`, otherwise `Windows10.vsf`, and with
+neither present the system style remains active. The style file is thereby read
+from the same installation as the runtime packages that render it.
 
 ## Directory Structure
 
@@ -174,7 +177,7 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 |---|---|
 | `Core.Log` | `TLogSeverity` and `TDesignLog`. A listener list rather than a single event, because the session log is displayed in every window at once, and a `Limit`: the session log belongs to a process that may run for days, so it drops its oldest entries and reports drops on a separate listener channel |
 | `Core.Console` | Console output for a GUI process. Resolves the target once — the inherited stdout handle when one exists, otherwise the parent process's console |
-| `Core.Settings` | The release identity of this build and everything derived from it, selected from `CompilerVersion`: IDE version segment, package `LIBSUFFIX`, VCL style name, and the registry root user state is stored under. Reads and writes nothing itself |
+| `Core.Settings` | The release identity of this build and everything derived from it, selected from `CompilerVersion`: IDE version segment, package `LIBSUFFIX`, and the registry root user state is stored under. Reads and writes nothing itself |
 | `Core.ArgumentFile` | Arguments read from the file `--config-file` names, for arguments a command line cannot hold: Windows caps one at 32767 characters, which a project search path can reach on its own. One argument per line, UTF-8 with or without a byte order mark |
 | `Core.SearchPath` | Directories searched for form files beyond the document's own, needed when an ancestor form or frame class lives elsewhere in a project. One process-wide default plus an optional per-document override, both lock-serialized. Paths must arrive already macro-expanded |
 | `Core.LoadedClasses` | Resolves a class name against the classes present in this process, design packages included, and reports what such a class descends from through `ClassParent`. Lookup order: the streaming registry, the qualified name built from a unit hint, then a one-time RTTI walk behind a lock |

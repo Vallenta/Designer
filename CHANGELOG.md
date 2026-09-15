@@ -8,12 +8,14 @@ All notable changes to **Vallenta Designer** will be documented in this file. Ve
 ### Changed
 - **Palette** — the Components and Favourites tabs are rebuilt together, and a tab keeps its expanded categories across a rebuild.
 - **Package loading, an exception the VCL handles itself** — such an exception is now written to the log with its stack instead of being shown in a message box.
+- **VCL style** — loaded at startup from the `Styles` folder of the Delphi release the designer runs against instead of being linked into the executable: Windows Modern where the release ships it, otherwise Windows10.
 
 ### Fixed
 - **Design surface** — the form takes mouse input where it is displayed, also after a pane beside it is resized or the surface is scrolled.
 - **Palette** — a double click on the header of a collapsed category places nothing.
 - **Palette** — a click on the header of a collapsed category expands it instead of arming one of the components the category hides.
 - **Packages, a design package exporting methods named `Register`** — a package's registration procedures are now identified by the mangled name of each unit it contains, and loading such a package no longer raises an access violation.
+- **Building with Delphi 13.0** — the resource step no longer fails on `WindowsModern.vsf`, which ships only with Delphi 13.1 and later.
 
 
 ## [0.8.0] - 2026-09-08

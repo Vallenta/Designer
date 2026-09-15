@@ -23,18 +23,4 @@
     <PropertyGroup>
         <ProductVersion Condition="'$(ProductVersion)'==''">$([System.IO.Path]::GetFileName($(BDS.TrimEnd('\'))))</ProductVersion>
     </PropertyGroup>
-
-    <!--
-      The WindowsModern style family ships only with Delphi 13. Delphi 11 and
-      12 carry the Windows10 family instead, and naming a style the release
-      does not have fails the resource step before the compiler ever runs.
-    -->
-    <PropertyGroup Condition="'$(ProductVersion)'=='37.0'">
-        <DesignerStyleName>Windows Modern</DesignerStyleName>
-        <DesignerStyleFile>WindowsModern.vsf</DesignerStyleFile>
-    </PropertyGroup>
-    <PropertyGroup Condition="'$(ProductVersion)'!='37.0'">
-        <DesignerStyleName>Windows10</DesignerStyleName>
-        <DesignerStyleFile>Windows10.vsf</DesignerStyleFile>
-    </PropertyGroup>
 </Project>
