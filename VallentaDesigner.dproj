@@ -55,7 +55,6 @@
         <VerInfo_Release>0</VerInfo_Release>
         <VerInfo_Build>0</VerInfo_Build>
         <VerInfo_Keys>CompanyName=Vallenta Studio;FileDescription=Vallenta Designer - visual designer for Delphi form files;FileVersion=0.8.0.0;InternalName=VallentaDesigner;LegalCopyright=Copyright (c) 2026 Michael Stagge (Vallenta Studio);LegalTrademarks=;OriginalFilename=VallentaDesigner.exe;ProductName=Vallenta Designer;ProductVersion=0.8.0;Comments=Part of Vallenta Studio. MIT licensed - see the LICENSE file;License=MIT</VerInfo_Keys>
-        <Custom_Styles>&quot;$(DesignerStyleName)|VCLSTYLE|$(BDSCOMMONDIR)\Styles\$(DesignerStyleFile)&quot;</Custom_Styles>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <Icon_MainIcon>resources\VSForm.ico</Icon_MainIcon>

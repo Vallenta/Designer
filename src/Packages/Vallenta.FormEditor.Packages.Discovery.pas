@@ -48,6 +48,10 @@ const
 function IdeRootDirectory: string;
 // IdeRootDirectory with '\bin' appended; empty when the root is empty.
 function IdeBinDirectory: string;
+// The release's shared documents directory: the BDSCOMMONDIR environment
+// variable, or %PUBLIC%\Documents\Embarcadero\Studio\<IdeVersion> when that is
+// unset; empty when neither is set.
+function IdeCommonDirectory: string;
 
 // Expands $(BDS), $(BDSBIN), $(BDSLIB) and $(BDSCOMMONDIR), then %VAR% and
 // any remaining $(VAR) from the environment. A variable with no value is

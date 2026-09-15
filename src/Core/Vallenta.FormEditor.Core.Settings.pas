@@ -7,10 +7,10 @@
 unit Vallenta.FormEditor.Core.Settings;
 
 // Release-dependent constants of this build: the registry root for user
-// state below HKEY_CURRENT_USER, the digits in RAD Studio package file
-// names, and the VCL style name applied at startup. All are selected from
-// CompilerVersion, so the target release is fixed at build time. Nothing here
-// reads or writes the registry; callers open the key SettingsKey returns.
+// state below HKEY_CURRENT_USER and the digits in RAD Studio package file
+// names. All are selected from CompilerVersion, so the target release is fixed
+// at build time. Nothing here reads or writes the registry; callers open the
+// key SettingsKey returns.
 
 interface
 
@@ -37,15 +37,6 @@ const
   PackageSuffix = '290';
 {$ELSE}
   PackageSuffix = '370';
-{$IFEND}
-
-  // VCL style applied at startup. Must match the style name inside the .vsf
-  // that VallentaDesigner.dproj links through Custom_Styles, selected by
-  // DesignerStyleName in VallentaDesigner.Common.props.
-{$IF CompilerVersion >= 37.0}
-  DesignerStyle = 'Windows Modern';
-{$ELSE}
-  DesignerStyle = 'Windows10';
 {$IFEND}
 
   // Path below HKEY_CURRENT_USER; the value carries no root key.
