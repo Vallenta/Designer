@@ -2213,6 +2213,16 @@ stage is exercised deliberately.
   `Palette.Frame.BuildButtons` suppresses drawing across the rebuild and sets
   `Data` first. This went unseen while every rebuild happened on a window still
   being built, where the palette has no handle and never paints.
+- **`TCategoryButtons.GetButtonAt` tests a point on a collapsed category against a
+  rectangle it never assigns.** `GetCategoryBounds` fills the button area only for
+  an expanded category, so for a collapsed one the test reads uninitialized stack
+  memory and returns nil or one of the rows the category hides. The inherited
+  press and release handlers ask it about every point, so a click on a collapsed
+  header can report a click on a hidden row, which arms that component, instead of
+  expanding the category. The result depends on what earlier calls left on the
+  stack, so the defect can show on one palette tab and not on the other.
+  `Palette.Buttons` asks it about expanded categories only (`VisibleButtonAt`) and
+  handles a left press on a collapsed category itself.
 - **A pure move leaves the styled host's mouse routing behind.** The VCL style
   frames the embedded form with a window region, and Windows keeps routing mouse
   input through the placement that region had when it was set: a resize or a new

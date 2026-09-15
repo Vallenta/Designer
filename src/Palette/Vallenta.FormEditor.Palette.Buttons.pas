@@ -49,6 +49,7 @@ type
     FHotItem: TButtonItem;
     FHotGroup: TButtonCategory;
     FConsumedPress: Boolean;
+    FExpandOnRelease: Boolean;
     FOnItemKind: TPaletteItemKindEvent;
     FOnGroupFavourite: TPaletteGroupKindEvent;
     FOnToggleItem: TCatButtonEvent;
@@ -74,13 +75,16 @@ type
     // Draws the header stars after the inherited paint; TCategoryButtons has
     // no per-header draw hook.
     procedure Paint; override;
-    // A left press on a star is consumed here and does not reach the
-    // inherited handler, so the row is neither selected nor armed.
+    // A left press on a star or on a collapsed page is consumed here and does
+    // not reach the inherited handler, so no row is selected or armed by it.
+    // TCategoryButtons.GetButtonAt tests a point on a collapsed page against a
+    // button rectangle left unassigned for it, and can return a hidden row.
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState;
       X, Y: Integer); override;
-    // Discards the release that follows a press consumed by a star; the
-    // inherited handler collapses a page on a release inside its header when
-    // no press was recorded.
+    // Discards the release that follows a star press; the inherited handler
+    // collapses a page on a release inside its header when no press was
+    // recorded. After a press on a collapsed page, a release inside the header
+    // of a collapsed page expands that page.
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState;
       X, Y: Integer); override;
     // Tracks the row or header under the mouse, where a star is drawn even
@@ -305,6 +309,7 @@ var
   Category: TButtonCategory;
 begin
   FConsumedPress := False;
+  FExpandOnRelease := False;
   if Button = mbLeft then
   begin
     Item := ItemStarAt(X, Y);
@@ -325,16 +330,36 @@ begin
       Invalidate;
       Exit;
     end;
+    Category := GetCategoryAt(X, Y);
+    if (Category <> nil) and Category.Collapsed then
+    begin
+      FExpandOnRelease := True;
+      if not Focused and CanFocus then
+        Winapi.Windows.SetFocus(Handle);
+      SelectedItem := Category;
+      Exit;
+    end;
   end;
   inherited MouseDown(Button, Shift, X, Y);
 end;
 
 procedure TPaletteButtons.MouseUp(Button: TMouseButton; Shift: TShiftState;
   X, Y: Integer);
+var
+  Category: TButtonCategory;
 begin
   if FConsumedPress then
   begin
     FConsumedPress := False;
+    Exit;
+  end;
+  if FExpandOnRelease then
+  begin
+    FExpandOnRelease := False;
+    Category := GetCategoryAt(X, Y);
+    if (Category <> nil) and Category.Collapsed and
+      Category.GetButtonRect(True).Contains(Point(X, Y)) then
+      Category.Collapsed := False;
     Exit;
   end;
   inherited MouseUp(Button, Shift, X, Y);

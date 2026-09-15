@@ -12,6 +12,7 @@ All notable changes to **Vallenta Designer** will be documented in this file. Ve
 ### Fixed
 - **Design surface** — the form takes mouse input where it is displayed, also after a pane beside it is resized or the surface is scrolled.
 - **Palette** — a double click on the header of a collapsed category places nothing.
+- **Palette** — a click on the header of a collapsed category expands it instead of arming one of the components the category hides.
 - **Packages, a design package exporting methods named `Register`** — a package's registration procedures are now identified by the mangled name of each unit it contains, and loading such a package no longer raises an access violation.
 
 
