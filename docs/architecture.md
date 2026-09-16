@@ -1630,8 +1630,13 @@ honour the `Disabled` subkey. The manager dialog writes `Configured` and
 `DefaultAllowList` returns `*`, so discovery loads everything the IDE has
 installed unless the value is set. `AllowList` remains available as an optional
 narrowing for bounding a session while investigating one package.
-`DefaultExclusions` excludes the `madExcept*` family, whose initialization hook
-turns an exception during a load into a modal dialog.
+`DefaultExclusions` excludes the `madExcept*` and `EurekaLog*` families. A mask
+spans its family because the candidate imports the package that puts up the
+dialog: `madExcept_` turns an exception during a load into one, and a trial
+`EurekaLogCore` shows one and ends the process in a host executable that carries
+no EurekaLog configuration. A licensed EurekaLog loads silently and is excluded
+all the same, because a file name does not carry the edition; the `Exclude`
+value re-admits it.
 
 **`Discovery`, `AllowList` and `Exclude` have no dialog control.** None of them
 can display what it did: a change takes effect at the next start, and
