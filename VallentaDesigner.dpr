@@ -63,6 +63,7 @@ uses
   Vallenta.FormEditor.Surface.Undo in 'src\Surface\Vallenta.FormEditor.Surface.Undo.pas',
   Vallenta.FormEditor.Surface.FormDesigner in 'src\Surface\Vallenta.FormEditor.Surface.FormDesigner.pas',
   Vallenta.FormEditor.Shell.AlignDialogs in 'src\Shell\Vallenta.FormEditor.Shell.AlignDialogs.pas',
+  Vallenta.FormEditor.Shell.AlignPalette in 'src\Shell\Vallenta.FormEditor.Shell.AlignPalette.pas',
   Vallenta.FormEditor.Shell.Layout in 'src\Shell\Vallenta.FormEditor.Shell.Layout.pas',
   Vallenta.FormEditor.Surface.IconCanvas in 'src\Surface\Vallenta.FormEditor.Surface.IconCanvas.pas',
   Vallenta.FormEditor.Inspector.PropertyModel in 'src\Inspector\Vallenta.FormEditor.Inspector.PropertyModel.pas',

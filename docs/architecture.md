@@ -60,9 +60,10 @@ duplicate-class report, and so is the line reporting that `basic_form.dfm` and
 `crossversion_newer_property.dfm` both declare `TForm1`.
 
 **The suite does not link the whole program.** `Shell.Core`, `Shell.MainWindow`,
-`Shell.RecoveryDialog`, `Palette.Frame` and `Palette.Buttons` are compiled only
-by the product build. A passing suite reports nothing about those five units;
-they are covered by running the program.
+`Shell.RecoveryDialog`, `Shell.AlignPalette`, `Palette.Frame` and
+`Palette.Buttons` are compiled only by the product build. A passing suite
+reports nothing about those six units; they are covered by running the
+program.
 
 ## Release Selection
 
@@ -252,6 +253,7 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | `Shell.MessagesFrame` + `.dfm` | The severity-colored message list over two logs: the session log first and marked as such, then this document's, so a window opened later still shows what the packages reported at startup |
 | `Shell.RecoveryDialog` | The documents an earlier session left unsaved, offered one row at a time. Built in code, and the one dialog here that is not OK/Cancel |
 | `Shell.AlignDialogs` | The align, same-size, tab-order and creation-order dialogs, built in code rather than from form resources |
+| `Shell.AlignPalette` | `TAlignPalette`, the alignment bar above the design surface: one drawn button opening a menu of the ten align actions, each entry carrying a glyph and a caption. The glyphs are drawn from geometry into an image list rather than loaded from bitmaps, so they stay sharp at any DPI and the program ships no artwork for them. The button is drawn rather than being a `TButton`, which would take the keyboard focus off the design surface. The strip holds no designer reference; a chosen entry raises `OnAlign` and the window runs the command |
 | `Shell.Layout` | `TLayoutStore` and `TDialogLayoutStore`: pane sizes, window size and resizable dialog geometry, as registry values under one key of this release. Sizes record the DPI they were measured at and are rescaled to the DPI they are read for |
 | `Shell.SplashWindow` + `.dfm` | `TSplashForm`, the start-up window: backdrop and mark as pictures the form resource carries, status line and progress bar as controls over them. Shown only by a start that becomes the core, driven from the `.dpr` and from the package load's progress, and closed before the message loop |
 
@@ -278,6 +280,7 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | `Tests.LoadedClasses` | Ancestor names resolved from the classes in the process: `LoadedClass`, `LoadedAncestorClass`, and `TAncestorChain` over form files with no companion unit |
 | `Tests.LinkedModules` | A reference into another module: resolved through the class index over the document's directory and the search path, written back qualified, and left unchanged when no form file declares the module |
 | `Tests.ZOrder` | `RestackSelection` and `CanRestackSelection`: to front, to back, a group step, a step that moves nothing, a guarded document, the root, and undo and redo. Z-order is an index among siblings that no property records, so every case reads a saved file |
+| `Tests.Align` | `AlignSelection`, `SizeSelection` and the predicates: each action against the extent the selection spans and not against the control selected last, what an `Align` property and a foreign container make the command refuse, the aligned control as a fixed edge of the extent, a run that writes nothing, a guarded document, one undo step for the group, the same rule under a nudge, what each action demands of the selection, and that a new selection and the guard both say the commands changed |
 | `Tests.Tiles` | `IsNonVisual` and `TileAt`: which components of a root are drawn as tiles, and which tile a point hits |
 | `Tests.DesignHitTest` | Which messages `IsDesignMsg` consumes and which are left to the control, which component a click resolves to, the parent of the selection chrome, the load-time `Modified` report, and the read-only guard. Moves the system cursor, so an interactive desktop session is required |
 | `Tests.InspectorRows` | Which editing control a row offers: the pick list `paValueList` fills, and the ellipsis `paDialog` — or `paCustomDropDown` without `paValueList` — shows |
@@ -302,12 +305,15 @@ resources. Only the *designed* root goes through the streaming machinery.
 
 | Zone | Pane |
 |---|---|
+| Top | Alignment bar |
 | Left | Component palette |
 | Centre | Scroll box hosting the document |
 | Right | Object inspector |
 | Bottom | Messages |
 
-Panes are frames created at runtime and parented into their zone, so the layout
+The alignment bar is a fixed-height strip and has no size to remember; the
+other three are resizable and their sizes are persisted. Panes are frames
+created at runtime and parented into their zone, so the layout
 lives in one form resource and each pane stays self-contained. Pane and window
 sizes are persisted by `Shell.Layout` under one registry key of this release:
 every window reads it as it opens and writes it as it closes, so the next start
@@ -746,8 +752,9 @@ would silently discard an inspector edit.
 ### Selection and Handles
 
 The selection is an ordered list with a **primary**, the component clicked last.
-The primary displays the grab handles, is what a resize applies to, and is what the
-align and size commands measure everything else against; the rest wear a thin
+The primary displays the grab handles, is what a resize applies to, what a
+same-size reads its extent from, and which container an align works in — an
+align measures against the selection as a whole, not against the primary; the rest wear a thin
 outline built from the same strips as the drag frame. Shift+click adds and
 removes, a drag on the background draws a marquee and takes what it touches
 (icon tiles included), and clicking a member of a group keeps the group and makes
@@ -868,18 +875,30 @@ frame has its background drawn by its parent. Only the first of those is the hos
 painting itself, and the two are distinguished by the window the canvas in flight
 belongs to; filling the host's colour over the other would erase the frame.
 
-## Group Commands and Their Dialogs (`Shell.AlignDialogs`)
+## Group Commands (`Shell.AlignPalette`, `Shell.AlignDialogs`)
 
 Align, same size, tab order and creation order are requested in a dialog and
 carried out by the designer; a dialog never modifies a designed component, it
 only reports the selected values. All four are built in code rather than from
-form resources.
+form resources. The ten align actions are also one menu entry each on the
+alignment bar, the strip above the design surface: a single button opens a
+popup menu of the ten, grouped by axis, each entry carrying a glyph and a
+caption, and each the same call with one axis set. Its glyphs are drawn from
+geometry into an image list, and its button is drawn rather than being a
+`TButton`, which would take the keyboard focus off the design surface and leave
+the arrow keys moving between controls instead of nudging the selection.
 
-- **Align** takes a choice per axis, with the primary selection as the reference.
-  *Space equally* distributes the gaps between the outermost two over everything
-  in between and leaves those two in place, so the result does not depend on the
-  order components were selected in.
-- **Same size** takes width, height or both from the primary.
+- **Align** takes a choice per axis and measures against the extent the
+  selection spans, not against one member of it: aligning left takes the
+  leftmost edge in the selection, aligning bottom the bottommost, centering the
+  center of everything it covers. The result therefore does not depend on the
+  order the components were selected in, and the control holding the edge being
+  aligned to does not move. *Space equally* distributes the gaps between the
+  outermost two over everything in between and leaves those two in place, for
+  the same reason. The extent covers every member, the ones that cannot move
+  included: a control its parent positions is a fixed edge of the selection.
+- **Same size** takes width, height or both from the primary, having no extent
+  to measure; the dialog says which control it reads.
 - **Tab order** lists the windowed children of the container the selection sits
   in, in the order they tab rather than the order they were parented, and assigns
   positions front to back. Each write shifts the ones after it, so working
@@ -894,6 +913,52 @@ positions in turn produces the list as given only while that list is every
 windowed child there is, and the stand-in for a preserved component is one of
 them; it holds the slot its own text names, and that text is not the designer's
 to rewrite.
+
+**Each action is asked for itself.** They do not need the same selection:
+centering in the container measures against the container, so one control is
+enough; aligning to the extent needs a second control, a lone one spanning
+nothing but itself; spacing equally needs three, below which there is nothing
+between the outermost two. `CanAlign` answers for one action and greys each palette cell;
+`CanAlignSelection` is the weakest of those demands and gates the dialog, which
+offers every action at once.
+
+**A view of those answers cannot refresh on the action-update cycle.** A form
+initiates its top-most menu items on idle and nothing below them, and the
+top-most items here carry no action, so this window's action states are
+refreshed when a menu opens and at no other time — which is never, for a strip
+that is always on screen. `OnCommandsChanged` is raised where the answers can
+change, a new selection and the guard going up or down, and the strip refreshes
+from that.
+
+### What a group command refuses to write
+
+A control whose `Align` is not `alNone` takes its bounds from its parent, and
+the parent writes them back on its next layout pass. Which bounds those are
+depends on the value: `alTop` and `alBottom` leave the control its own height,
+`alLeft` and `alRight` its own width, `alClient` nothing. `alCustom` is assumed
+to take everything, the rule behind it being the parent's own.
+
+- **Align** writes a position, which every value but `alNone` decides, so such a
+  control is left alone outright. It still serves as the reference: its
+  rectangle is real, and only writing to it is refused. Leaving it out is not
+  cosmetic — a write to `Top` would be undone, and two siblings sharing an
+  `Align` value are ordered by their positions, so it can also swap them, which
+  is a layout change nobody asked an align for.
+- **Same size** refuses one dimension at a time: an `alTop` control keeps its
+  width and takes a height.
+- **A control in another container than the primary** is left alone as well.
+  `Left` and `Top` are read in the container's own coordinates, so aligning
+  across two of them would line up numbers rather than what the eye sees.
+
+Both cases are reported in the messages pane by count, and `CanAlignSelection`
+and `CanSizeSelection` answer whether anything is left to write, which is what
+the menu entries and the bar’s entries are enabled from.
+
+**A command that writes nothing leaves no trace.** Bounds are compared before
+and after, and an align that moved nothing drops its undo entry and leaves the
+document clean. `ApplyBounds` reads the rectangle back for the same reason, so
+dragging or nudging a control its parent positions — or one `Constraints` holds
+— is no longer an edit either.
 
 The batch commands write bounds directly rather than through `ApplyBounds`, and
 mark the document dirty and refresh the handles once at the end: one gesture, one
@@ -2102,6 +2167,19 @@ stage is exercised deliberately.
   adopting the output; adopting it unexamined would bake a save defect into the
   fixture. A binary blob cannot be authored at all: the bytes have to come from
   the framework's own writer, streaming an object built for the purpose.
+- **A control its parent positions takes no bounds from an edit.** `Align` other
+  than `alNone` hands the bounds it names to the parent, which writes them back
+  on its next layout pass. A write is therefore not an edit on its own: every
+  path that moves or resizes reads the rectangle back and treats an unchanged
+  one as nothing done. The group commands go further and leave such a control
+  alone, because siblings sharing an `Align` value are ordered by their
+  positions, so a write to `Top` can restack them.
+- **An action state is refreshed when a menu opens, not while one is shut.** A
+  form initiates its top-most menu items on idle and nothing below them, so an
+  action reached only through a submenu is updated when that submenu opens.
+  Anything on screen that shows what a command would do — a toolbar, the
+  alignment bar — has to be driven by a notification of its own, or it
+  displays whatever state it was built with.
 - **Never leave state on a borrowed canvas.** A form re-measures the text height
   it stores at save time through its own canvas, so a font left behind by the
   tile renderer silently rewrites that property. Anything drawing on a borrowed

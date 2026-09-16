@@ -46,7 +46,11 @@ Vallenta Studio session.
 
 **Editing commands.** Undo and redo over a 100-step history. Cut, copy and paste through the
 system clipboard in the same text format the IDE uses, so components move between both
-designers. Bring to front and send to back, align, same size, tab order and creation order.
+designers. Bring to front and send to back, align, same size, tab order and creation order. The
+alignment bar above the design surface opens a menu of the ten align actions, each with its own
+glyph; an align measures against the extent the selection spans, so the result does not depend on
+the order things were selected in. A control whose `Align` property leaves its position to its
+parent is left where it is, and the messages pane says how many were.
 
 **Files that are not plain forms.** A frame used inside a form is written as the difference from
 the frame's own file, and a form built on another form is written as the difference from its
