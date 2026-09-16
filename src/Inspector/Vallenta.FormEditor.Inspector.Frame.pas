@@ -473,39 +473,70 @@ end;
 
 procedure TInspectorFrame.SyncTreeToSelection;
 var
+  Instance: TPersistent;
   Node: TTreeNode;
-  Instances: TArray<TPersistent>;
+  Nodes: TArray<TTreeNode>;
 begin
   if FDesigner = nil then
     Exit;
-  Node := nil;
-  Instances := FDesigner.SelectedPersistents;
-  if (Length(Instances) > 0) and not (Instances[0] is TComponent) then
-    Node := FindNodeFor(Instances[0]);
-  if Node = nil then
+  // SelectedPersistents is ordered primary first, and that is the entry
+  // TTreeView.Select focuses; the rest are highlighted beside it.
+  for Instance in FDesigner.SelectedPersistents do
+  begin
+    Node := FindNodeFor(Instance);
+    if Node <> nil then
+      Nodes := Nodes + [Node];
+  end;
+  if Length(Nodes) = 0 then
+  begin
+    // A sub-object a property editor selected has no node of its own; the
+    // component holding it is what the tree can show.
     Node := FindNodeFor(FDesigner.Selected);
-  if (Node = nil) or (Node = ComponentTree.Selected) then
-    Exit;
+    if Node = nil then
+      Exit;
+    Nodes := [Node];
+  end;
   FUpdating := True;
   try
-    Node.Selected := True;
+    ComponentTree.Select(Nodes);
   finally
     FUpdating := False;
   end;
 end;
 
 procedure TInspectorFrame.ComponentTreeChange(Sender: TObject; Node: TTreeNode);
+var
+  Primary: TPersistent;
+  Instance: TPersistent;
+  Group: TArray<TComponent>;
+  I: Integer;
 begin
-  if FUpdating or (FDesigner = nil) or (Node = nil) then
+  if FUpdating or (FDesigner = nil) or (Node = nil) or
+    (ComponentTree.SelectionCount = 0) then
     Exit;
+  // The tree keeps the node a click made current first; the designer takes it
+  // last, which is where SelectMany reads the primary from.
+  Primary := TPersistent(ComponentTree.Selections[0].Data);
+  for I := 1 to Integer(ComponentTree.SelectionCount) - 1 do
+  begin
+    Instance := TPersistent(ComponentTree.Selections[I].Data);
+    if Instance is TComponent then
+      Group := Group + [TComponent(Instance)];
+  end;
   // SelectPersistent raises OnSelectionChanged before it returns; FUpdating
   // stops that handler from writing the selection back into the tree.
   FUpdating := True;
   try
-    FDesigner.SelectPersistent(TPersistent(Node.Data));
+    if (Length(Group) = 0) or not (Primary is TComponent) then
+      FDesigner.SelectPersistent(Primary)
+    else
+      FDesigner.SelectMany(Group + [TComponent(Primary)]);
   finally
     FUpdating := False;
   end;
+  // What cannot be part of a group is refused, the root among it, so the tree
+  // is brought back to the selection that was accepted.
+  SyncTreeToSelection;
 end;
 
 procedure TInspectorFrame.ComponentTreeContextPopup(Sender: TObject;

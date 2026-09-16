@@ -147,7 +147,7 @@ type
     FLoadedState: TLoadedFormState;
     FSelected: TComponent;
     FSelection: TList<TComponent>;
-    FOutlines: TObjectList<TDragFrame>;
+    FSecondaryHandles: TObjectList<THandleSet>;
     FHandles: THandleSet;
     FTiles: TTileLayer;
     FDirty: Boolean;
@@ -258,7 +258,7 @@ type
     function GroupReach(ANeeded: TOwnedBounds): TGroupReach;
     procedure ReportKept(AParentOwned, AForeign: Integer;
       const AOwnedReason: string);
-    procedure UpdateOutlines;
+    procedure UpdateSecondaryHandles;
     procedure UpdateHandles;
     procedure UpdateTiles;
     procedure InvalidateSurface;
@@ -696,12 +696,12 @@ begin
   FSelected := ARoot;
   FSelection := TList<TComponent>.Create;
   FSelection.Add(ARoot);
-  FOutlines := TObjectList<TDragFrame>.Create(True);
+  FSecondaryHandles := TObjectList<THandleSet>.Create(True);
   FLog := ALog;
   FGridSize := DefaultGridSize;
   FSnapToGrid := True;
   FIconProvider := IconProviderOver(TGenericGlyphProvider.Create);
-  FHandles := THandleSet.Create(HandleDrag);
+  FHandles := THandleSet.Create(HandleDrag, PrimaryHandleColor);
   FDragFrame := TDragFrame.Create;
   // Chrome is parented into the host window, never into a designed container:
   // a container that manages its children (a TToolBar) would give it a slot.
@@ -980,7 +980,7 @@ begin
   FRootCanvas.Free;
   FTiles.Free;
   FDragFrame.Free;
-  FOutlines.Free;
+  FSecondaryHandles.Free;
   FSelection.Free;
   FHandles.Free;
   FSettledImage.Free;
@@ -1152,18 +1152,18 @@ begin
   FUndoStack.PushImage(Image, uoEditor, FSelected.Name);
 end;
 
-// Grab handles, drag frame and outlines are entries in their parent's tab
-// list; streaming before they are sunk writes TabOrder values that count them.
+// Grab handles and drag frame are entries in their parent's tab list;
+// streaming before they are sunk writes TabOrder values that count them.
 procedure TFormDesigner.SinkChrome;
 var
-  Outline: TDragFrame;
+  Handles: THandleSet;
 begin
   FHandles.SinkInTabOrder;
   FDragFrame.SinkInTabOrder;
   if FTiles <> nil then
     SinkBehindSiblings(FTiles);
-  for Outline in FOutlines do
-    Outline.SinkInTabOrder;
+  for Handles in FSecondaryHandles do
+    Handles.SinkInTabOrder;
 end;
 
 function TFormDesigner.CaptureSnapshot: TDocumentSnapshot;
@@ -2978,30 +2978,39 @@ begin
     FHandles.ShowFor(FSelected)
   else
     FHandles.ShowFor(nil);
-  UpdateOutlines;
+  UpdateSecondaryHandles;
 end;
 
-procedure TFormDesigner.UpdateOutlines;
+// The sets are kept and re-targeted rather than rebuilt: a nudge calls this
+// for every arrow key, and eight windows per member would be destroyed and
+// recreated under the cursor each time.
+procedure TFormDesigner.UpdateSecondaryHandles;
 var
   Item: TComponent;
   Control: TControl;
-  Outline: TDragFrame;
+  Handles: THandleSet;
+  Used: Integer;
 begin
-  FOutlines.Clear;
-  if FSelection.Count < 2 then
-    Exit;
-  for Item in FSelection do
-  begin
-    if (Item = FSelected) or not (Item is TControl) then
-      Continue;
-    Control := TControl(Item);
-    if Control.Parent = nil then
-      Continue;
-    Outline := TDragFrame.Create;
-    Outline.Chrome := FForm;
-    FOutlines.Add(Outline);
-    Outline.ShowRect(Control.Parent, Control.BoundsRect);
-  end;
+  Used := 0;
+  if FSelection.Count > 1 then
+    for Item in FSelection do
+    begin
+      if (Item = FSelected) or not (Item is TControl) then
+        Continue;
+      Control := TControl(Item);
+      if Control.Parent = nil then
+        Continue;
+      if Used = FSecondaryHandles.Count then
+      begin
+        Handles := THandleSet.Create(nil, SecondaryHandleColor);
+        Handles.Chrome := FForm;
+        FSecondaryHandles.Add(Handles);
+      end;
+      FSecondaryHandles[Used].ShowFor(Control);
+      Inc(Used);
+    end;
+  while FSecondaryHandles.Count > Used do
+    FSecondaryHandles.Delete(FSecondaryHandles.Count - 1);
 end;
 
 procedure TFormDesigner.SelectComponent(AComponent: TComponent);

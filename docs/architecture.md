@@ -226,7 +226,7 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | Unit | Contents |
 |---|---|
 | `Surface.FormDesigner` | `TFormDesigner`: selection, input state machine, background painting, placement, dirty tracking, notifications, the save and close flow, z-order restacking, the read-only guard, the hosted designer the document holds, and the settled image. `WriteTo` writes the document to any path, which is what the journal writes through |
-| `Surface.Handles` | `THandleSet` and `TDragFrame`: grab handles, the drag frame, and the outlines of a multiple selection. All are child windows with a nil `Owner`, and all are moved to the end of the tab list before the document is streamed |
+| `Surface.Handles` | `THandleSet` and `TDragFrame`: grab handles and the drag frame. All are child windows with a nil `Owner`, and all are moved to the end of the tab list before the document is streamed |
 | `Surface.Tiles` | The tiles that stand in for components without a window, and the dotted background they sit on. One set of routines paints both surfaces that show them |
 | `Surface.TileLayer` | `TTileLayer`, the window the tiles of a form or frame are drawn in, raised above the designed controls so that a control repainting itself cannot erase one |
 | `Surface.IconCanvas` | `TIconSurface`, the design surface for a data module |
@@ -752,10 +752,12 @@ would silently discard an inspector edit.
 ### Selection and Handles
 
 The selection is an ordered list with a **primary**, the component clicked last.
-The primary displays the grab handles, is what a resize applies to, what a
+The primary is what a resize applies to, what a
 same-size reads its extent from, and which container an align works in — an
-align measures against the selection as a whole, not against the primary; the rest wear a thin
-outline built from the same strips as the drag frame. Shift+click adds and
+align measures against the selection as a whole, not against the primary.
+Every member wears the eight grab handles: black and draggable on the primary,
+grey and inert on the rest, and an inert handle answers the hit test as
+transparent so the control under it still receives the click. Shift+click adds and
 removes, a drag on the background draws a marquee and takes what it touches
 (icon tiles included), and clicking a member of a group keeps the group and makes
 that member primary, so the whole group can be dragged as one.
@@ -1355,7 +1357,7 @@ written with a number that counts it. Moved, not detached — taking a window ou
 of its parent destroys it, which repaints the control underneath through the gap
 and releases the mouse capture a resize arrives on. Moving a window inside the
 tab list touches no window at all. All four kinds move: the handles, the drag
-frame, the outline drawn around every non-primary member of a group, and the tile layer.
+frame, the handles every non-primary member of a group wears, and the tile layer.
 
 **A change made inside a hosted design window is a step too** — one per change,
 which is the granularity the IDE has. Those editors report nothing before they
@@ -1548,6 +1550,13 @@ may have created components without reporting them.
 
 The tree nests controls by parent and lists the components without a window flat
 under the root.
+
+The tree is multi-select and shows the whole selection, not the primary alone:
+the primary is the focused node, every other member is highlighted beside it.
+Ctrl+click and Shift+click build a selection there as they do in any Windows
+tree, and it is written straight to the designer. What cannot be part of a group
+— the root, and a collection item mixed in with components — is refused, and the
+tree is brought back to the selection the designer accepted.
 
 A property with no setter is shown read-only rather than hidden, so the grid
 stays a faithful view of the object. Writes go through typed setters and are

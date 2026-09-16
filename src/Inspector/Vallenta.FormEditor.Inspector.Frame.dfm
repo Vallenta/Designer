@@ -32,6 +32,8 @@ object InspectorFrame: TInspectorFrame
     BorderStyle = bsNone
     HideSelection = False
     Indent = 19
+    MultiSelect = True
+    MultiSelectStyle = [msControlSelect, msShiftSelect]
     ReadOnly = True
     TabOrder = 1
     OnChange = ComponentTreeChange
