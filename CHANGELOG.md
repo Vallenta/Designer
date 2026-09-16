@@ -5,15 +5,23 @@ All notable changes to **Vallenta Designer** will be documented in this file. Ve
 
 ## [0.8.1] unreleased (put new entries here!)
 
+### Added
+- **Alignment bar** — a bar above the design surface opens a menu of the ten align actions, each carrying its own glyph.
+
 ### Changed
+- **Design surface, multiple selection** — every selected component wears grab handles, black on the component selected last and grey on the rest.
+- **Object inspector, multiple selection** — the component tree highlights every selected component, and a selection of several components can be built in it.
 - **Palette** — the Components and Favourites tabs are rebuilt together, and a tab keeps its expanded categories across a rebuild.
 - **Package loading, an exception the VCL handles itself** — such an exception is now written to the log with its stack instead of being shown in a message box.
+- **Align commands** — an align measures against the extent the selection spans, whatever order the selection was built in.
+- **Align and same size, a component whose `Align` property leaves its bounds to its parent** — the component keeps its bounds and the messages pane reports how many were left alone.
 
 ### Fixed
 - **Design surface** — the form takes mouse input where it is displayed, also after a pane beside it is resized or the surface is scrolled.
 - **Palette** — a double click on the header of a collapsed category places nothing.
 - **Packages, a design package exporting methods named `Register`** — a package's registration procedures are now identified by the mangled name of each unit it contains, and loading such a package no longer raises an access violation.
 - **Packages, EurekaLog installed in the IDE** — the EurekaLog packages are excluded from discovery, and starting the designer no longer shows the EurekaLog trial message box.
+- **Design surface, a gesture that moves nothing** — the document stays unmodified and the history keeps no step for it.
 
 
 ## [0.8.0] - 2026-09-08
