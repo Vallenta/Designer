@@ -13,6 +13,7 @@ All notable changes to **Vallenta Designer** will be documented in this file. Ve
 - **Design surface** — the form takes mouse input where it is displayed, also after a pane beside it is resized or the surface is scrolled.
 - **Palette** — a double click on the header of a collapsed category places nothing.
 - **Packages, a design package exporting methods named `Register`** — a package's registration procedures are now identified by the mangled name of each unit it contains, and loading such a package no longer raises an access violation.
+- **Packages, EurekaLog installed in the IDE** — the EurekaLog packages are excluded from discovery, and starting the designer no longer shows the EurekaLog trial message box.
 
 
 ## [0.8.0] - 2026-09-08

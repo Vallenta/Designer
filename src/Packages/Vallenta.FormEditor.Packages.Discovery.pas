@@ -64,9 +64,12 @@ function InstalledPackages: TArray<TDiscoveredPackage>;
 function DefaultAllowList: TArray<string>;
 
 // Exclusion list applied when the registry holds no exclusion value:
-// 'madExcept*'. The mask must span the family: madExceptVcl_ loads
-// madExcept_, whose initialization hook turns an exception during a load
-// into a modal dialog.
+// 'madExcept*' and 'EurekaLog*'. A mask spans its family because the
+// candidate imports the package that puts up the dialog: madExcept_ turns an
+// exception during a load into one, and a trial EurekaLogCore shows one and
+// ends the process in a host executable that carries no EurekaLog
+// configuration. A licensed EurekaLog loads silently and is excluded all the
+// same, because a file name does not carry the edition.
 function DefaultExclusions: TArray<string>;
 
 // True when an exclusion entry matches the file name of APath. Entries are
@@ -277,7 +280,7 @@ end;
 
 function DefaultExclusions: TArray<string>;
 begin
-  Result := ['madExcept*'];
+  Result := ['madExcept*', 'EurekaLog*'];
 end;
 
 function IsExcluded(const APath: string; const AExclusions: TArray<string>): Boolean;
