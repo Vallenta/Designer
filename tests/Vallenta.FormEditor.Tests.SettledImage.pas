@@ -46,7 +46,7 @@ type
     [Test]
     procedure AControlAddedWhileTheHandlesAreUpKeepsItsOwnTabOrder;
     [Test]
-    procedure AControlAddedWhileAGroupIsOutlinedKeepsItsOwnTabOrder;
+    procedure AControlAddedWhileAGroupWearsHandlesKeepsItsOwnTabOrder;
     [Test]
     procedure DraggingTheFramesBorderIsAGestureInFlight;
     [Test]
@@ -517,10 +517,10 @@ begin
   end;
 end;
 
-// The same for the outlines: grab handles are shown around the primary of a
-// multi-selection only; every other member is outlined by four windows, which
-// stay parented for as long as the multi-selection holds.
-procedure TSettledImageTests.AControlAddedWhileAGroupIsOutlinedKeepsItsOwnTabOrder;
+// The same for the rest of a multi-selection: every member other than the
+// primary wears eight inert handles of its own, which stay parented for as
+// long as the multi-selection holds.
+procedure TSettledImageTests.AControlAddedWhileAGroupWearsHandlesKeepsItsOwnTabOrder;
 const
   ExpectedOrder = 3;
 var
@@ -540,7 +540,7 @@ begin
     Added.Parent := TWinControl(Root);
     Session.WrittenFile;
     Assert.AreEqual(ExpectedOrder, Integer(Added.TabOrder),
-      'the control keeps a tab order that counts the outline of a second selection');
+      'the control keeps a tab order that counts the handles of a second selection');
   finally
     Session.Free;
   end;

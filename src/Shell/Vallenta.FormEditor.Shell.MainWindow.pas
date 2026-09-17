@@ -30,6 +30,7 @@ uses
   Vcl.ActnList,
   System.Actions,
   Vallenta.FormEditor.Shell.AlignDialogs,
+  Vallenta.FormEditor.Shell.AlignPalette,
   Vallenta.FormEditor.Core.Log,
   Vallenta.FormEditor.Core.Sessions,
   Vallenta.FormEditor.Core.Coupling,
@@ -90,6 +91,7 @@ type
     ViewPaletteItem: TMenuItem;
     ViewInspectorItem: TMenuItem;
     ViewMessagesItem: TMenuItem;
+    ViewAlignPaletteItem: TMenuItem;
     ToolsMenu: TMenuItem;
     ToolsPackagesItem: TMenuItem;
     ActionList: TActionList;
@@ -109,6 +111,7 @@ type
     TogglePaletteAction: TAction;
     ToggleInspectorAction: TAction;
     ToggleMessagesAction: TAction;
+    ToggleAlignPaletteAction: TAction;
     PackagesAction: TAction;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
@@ -131,6 +134,7 @@ type
     procedure TogglePaletteActionExecute(Sender: TObject);
     procedure ToggleInspectorActionExecute(Sender: TObject);
     procedure ToggleMessagesActionExecute(Sender: TObject);
+    procedure ToggleAlignPaletteActionExecute(Sender: TObject);
     procedure PackagesActionExecute(Sender: TObject);
     procedure ActionListUpdate(Action: TBasicAction; var Handled: Boolean);
   private
@@ -153,6 +157,7 @@ type
     FPalette: TPaletteFrame;
     FInspector: TInspectorFrame;
     FMessages: TMessagesFrame;
+    FAlignPalette: TAlignPalette;
     // Banner above the design surface, shown while the document is guarded
     // read-only. FGuardLifted survives an undo rebuild, which reloads the
     // document and would otherwise guard it again.
@@ -208,6 +213,12 @@ type
     procedure RestoreLayout;
     procedure KeepLayout;
     procedure ToggleZone(Zone: TPanel; Splitter: TSplitter);
+    procedure AlignPaletteAction(Sender: TObject;
+      AHorizontal: TAlignHorizontal; AVertical: TAlignVertical);
+    procedure AlignPaletteQuery(Sender: TObject;
+      AHorizontal: TAlignHorizontal; AVertical: TAlignVertical;
+      var AEnabled: Boolean);
+    procedure DesignerCommandsChanged(Sender: TObject);
     procedure BuildDocument(ALoader: TFormLoader);
     procedure HoldPanesStill(AHold: Boolean);
     procedure PresentDocument(const AState: TLoadedFormState);
@@ -556,6 +567,14 @@ end;
 
 procedure TMainDesignerForm.BuildPanes;
 begin
+  // Parented beside the design surface rather than into it, so the strip
+  // spans the window and the surface scrolls beneath it.
+  FAlignPalette := TAlignPalette.Create(Self);
+  FAlignPalette.Parent := DesignSurfaceBox.Parent;
+  FAlignPalette.Align := alTop;
+  FAlignPalette.OnAlign := AlignPaletteAction;
+  FAlignPalette.OnQueryAlign := AlignPaletteQuery;
+
   FPalette := TPaletteFrame.Create(Self);
   FPalette.Parent := PaletteZone;
   FPalette.Align := alClient;
@@ -834,6 +853,7 @@ begin
   FDesigner.OnUndoRequest := DesignerUndoRequested;
   FDesigner.OnRedoRequest := DesignerRedoRequested;
   FDesigner.OnContextMenu := DesignerContextMenu;
+  FDesigner.OnCommandsChanged := DesignerCommandsChanged;
   FDesigner.OnComponentsChanged := DocumentComponentsChanged;
   FDesigner.OnCouplingQuery := AskCoupling;
   FDesigner.OnRenameRequest := StartRename;
@@ -1474,6 +1494,38 @@ begin
   ToggleZone(MessagesZone, MessagesSplitter);
 end;
 
+procedure TMainDesignerForm.ToggleAlignPaletteActionExecute(Sender: TObject);
+begin
+  FAlignPalette.Visible := not FAlignPalette.Visible;
+end;
+
+// The strip carries no designer reference; the window it belongs to runs the
+// command the pressed cell names.
+procedure TMainDesignerForm.AlignPaletteAction(Sender: TObject;
+  AHorizontal: TAlignHorizontal; AVertical: TAlignVertical);
+begin
+  if FDesigner <> nil then
+    FDesigner.AlignSelection(AHorizontal, AVertical);
+end;
+
+// The strip shows what the selection allows and has to follow it. A form
+// initiates only its top-most menu items on idle, and those carry no action
+// here, so the action-update cycle reaches this window when a menu opens and
+// at no other time - which is never, for a strip that is always on screen.
+procedure TMainDesignerForm.DesignerCommandsChanged(Sender: TObject);
+begin
+  FAlignPalette.RefreshCommands;
+end;
+
+// Each cell is asked for itself: centering in the container reaches a lone
+// control, where aligning to the reference needs a second one.
+procedure TMainDesignerForm.AlignPaletteQuery(Sender: TObject;
+  AHorizontal: TAlignHorizontal; AVertical: TAlignVertical;
+  var AEnabled: Boolean);
+begin
+  AEnabled := (FDesigner <> nil) and FDesigner.CanAlign(AHorizontal, AVertical);
+end;
+
 procedure TMainDesignerForm.PackagesActionExecute(Sender: TObject);
 begin
   if ExecutePackageManager then
@@ -1496,8 +1548,8 @@ begin
   CutAction.Enabled := CopyAction.Enabled and (FDesigner <> nil) and
     not FDesigner.Guarded;
   PasteAction.Enabled := (FDesigner <> nil) and FDesigner.CanPaste;
-  AlignAction.Enabled := (FDesigner <> nil) and (FDesigner.SelectionCount > 1);
-  SizeAction.Enabled := AlignAction.Enabled;
+  AlignAction.Enabled := (FDesigner <> nil) and FDesigner.CanAlignSelection;
+  SizeAction.Enabled := (FDesigner <> nil) and FDesigner.CanSizeSelection;
   BringToFrontAction.Enabled := (FDesigner <> nil) and
     FDesigner.CanRestackSelection;
   SendToBackAction.Enabled := BringToFrontAction.Enabled;
@@ -1506,6 +1558,8 @@ begin
   TogglePaletteAction.Checked := PaletteZone.Visible;
   ToggleInspectorAction.Checked := InspectorZone.Visible;
   ToggleMessagesAction.Checked := MessagesZone.Visible;
+  ToggleAlignPaletteAction.Checked := FAlignPalette.Visible;
+  FAlignPalette.RefreshCommands;
 end;
 
 end.

@@ -49,7 +49,8 @@ uses
   Vallenta.FormEditor.Tests.Diagnostics in 'Vallenta.FormEditor.Tests.Diagnostics.pas',
   Vallenta.FormEditor.Tests.ZOrder in 'Vallenta.FormEditor.Tests.ZOrder.pas',
   Vallenta.FormEditor.Tests.InspectorRows in 'Vallenta.FormEditor.Tests.InspectorRows.pas',
-  Vallenta.FormEditor.Tests.Clipboard in 'Vallenta.FormEditor.Tests.Clipboard.pas';
+  Vallenta.FormEditor.Tests.Clipboard in 'Vallenta.FormEditor.Tests.Clipboard.pas',
+  Vallenta.FormEditor.Tests.Align in 'Vallenta.FormEditor.Tests.Align.pas';
 
 var
   Runner: ITestRunner;

@@ -126,6 +126,7 @@
         <DCCReference Include="src\Surface\Vallenta.FormEditor.Surface.Undo.pas"/>
         <DCCReference Include="src\Surface\Vallenta.FormEditor.Surface.FormDesigner.pas"/>
         <DCCReference Include="src\Shell\Vallenta.FormEditor.Shell.AlignDialogs.pas"/>
+        <DCCReference Include="src\Shell\Vallenta.FormEditor.Shell.AlignPalette.pas"/>
         <DCCReference Include="src\Shell\Vallenta.FormEditor.Shell.Layout.pas"/>
         <DCCReference Include="src\Surface\Vallenta.FormEditor.Surface.IconCanvas.pas"/>
         <DCCReference Include="src\Inspector\Vallenta.FormEditor.Inspector.PropertyModel.pas"/>

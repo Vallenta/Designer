@@ -6,11 +6,11 @@
 
 unit Vallenta.FormEditor.Surface.Handles;
 
-// Designer chrome: the eight grab handles around the selection and the
-// four-strip rectangle used for drag feedback, the marquee and secondary
-// selections. All are real child windows with a nil Owner and never enter
-// the streamed component tree; overlay painting is erased when a control
-// repaints itself, and the desktop compositor discards direct screen output.
+// Designer chrome: the eight grab handles around a selected control and the
+// four-strip rectangle used for drag feedback and the marquee. All are real
+// child windows with a nil Owner and never enter the streamed component tree;
+// overlay painting is erased when a control repaints itself, and the desktop
+// compositor discards direct screen output.
 //
 // The windows are parented to the window Chrome names, normally the
 // document's host window and not the designed container the target is a child
@@ -21,8 +21,10 @@ unit Vallenta.FormEditor.Surface.Handles;
 interface
 
 uses
+  Winapi.Messages,
   System.Classes,
   System.Types,
+  System.UITypes,
   Vcl.Controls;
 
 type
@@ -40,20 +42,26 @@ type
 
   // One grab handle window. csCaptureMouse captures the mouse from mouse-down
   // to mouse-up, so the moves of a drag started here reach this window and are
-  // reported through the handler passed to CreateGrabHandle.
+  // reported through the handler passed to CreateGrabHandle. A handle built
+  // without a handler answers the hit test as transparent, so the control
+  // under it still receives the click.
   THandleWindow = class(TCustomControl)
   private
     FKind: THandleKind;
+    FColor: TColor;
     FOnDrag: THandleDragEvent;
+    procedure WMNCHitTest(var Message: TWMNCHitTest); message WM_NCHITTEST;
   protected
     procedure Paint; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
   public
-    // Creates a handle of HandleSize pixels, hidden, with the resize cursor
-    // for Kind; AOnDrag receives the drag stages, hdsMove also on plain hover.
-    constructor CreateGrabHandle(Kind: THandleKind; AOnDrag: THandleDragEvent);
+    // Creates a handle of HandleSize pixels, hidden, filled with AColor.
+    // AOnDrag receives the drag stages, hdsMove also on plain hover; nil
+    // leaves the handle inert and without a resize cursor.
+    constructor CreateGrabHandle(Kind: THandleKind; AOnDrag: THandleDragEvent;
+      AColor: TColor);
     // Position of this handle on the selection rectangle.
     property Kind: THandleKind read FKind;
   end;
@@ -69,8 +77,7 @@ type
 
   // Rectangle outline drawn as four edge windows. Used as feedback during a
   // move, resize, marquee or component-creation gesture, which changes no
-  // bounds before the drop, and as the outline of each other control in a
-  // multi-selection.
+  // bounds before the drop.
   TDragFrame = class
   private
     FStrips: array [0 .. 3] of TFrameStrip;
@@ -104,8 +111,9 @@ type
     FTarget: TControl;
     procedure PositionHandle(Kind: THandleKind);
   public
-    // Creates the eight handles, hidden; AOnDrag receives every drag stage.
-    constructor Create(AOnDrag: THandleDragEvent);
+    // Creates the eight handles, hidden and filled with AColor; AOnDrag
+    // receives every drag stage, nil leaves the whole set inert.
+    constructor Create(AOnDrag: THandleDragEvent; AColor: TColor);
     destructor Destroy; override;
     // Shows the handles around AComponent, or hides and unparents them when
     // AComponent is not a TControl or has no parent.
@@ -137,10 +145,16 @@ const
   HandleSize = 5;
   FrameThickness = 2;
 
+// Fill colors of the grab handles: the primary selection, and every other
+// member of a multi-selection.
+const
+  PrimaryHandleColor = TColors.Black;
+  SecondaryHandleColor = TColors.Gray;
+
 implementation
 
 uses
-  System.UITypes,
+  Winapi.Windows,
   Vcl.Graphics;
 
 const
@@ -156,13 +170,15 @@ end;
 { THandleWindow }
 
 constructor THandleWindow.CreateGrabHandle(Kind: THandleKind;
-  AOnDrag: THandleDragEvent);
+  AOnDrag: THandleDragEvent; AColor: TColor);
 begin
   inherited Create(nil);
   FKind := Kind;
+  FColor := AColor;
   FOnDrag := AOnDrag;
   ControlStyle := ControlStyle + [csOpaque];
-  Cursor := HandleCursors[Kind];
+  if Assigned(AOnDrag) then
+    Cursor := HandleCursors[Kind];
   Width := HandleSize;
   Height := HandleSize;
   Visible := False;
@@ -170,9 +186,20 @@ end;
 
 procedure THandleWindow.Paint;
 begin
-  Canvas.Brush.Color := clBlack;
+  Canvas.Brush.Color := FColor;
   Canvas.Brush.Style := bsSolid;
   Canvas.FillRect(ClientRect);
+end;
+
+procedure THandleWindow.WMNCHitTest(var Message: TWMNCHitTest);
+begin
+  // An inert handle is feedback only. Without HTTRANSPARENT its window would
+  // swallow every click on the eight corners and edge midpoints of a control
+  // that is selected but not primary.
+  if Assigned(FOnDrag) then
+    inherited
+  else
+    Message.Result := HTTRANSPARENT;
 end;
 
 procedure THandleWindow.MouseDown(Button: TMouseButton; Shift: TShiftState;
@@ -305,13 +332,13 @@ end;
 
 { THandleSet }
 
-constructor THandleSet.Create(AOnDrag: THandleDragEvent);
+constructor THandleSet.Create(AOnDrag: THandleDragEvent; AColor: TColor);
 var
   Kind: THandleKind;
 begin
   inherited Create;
   for Kind := Low(THandleKind) to High(THandleKind) do
-    FHandles[Kind] := THandleWindow.CreateGrabHandle(Kind, AOnDrag);
+    FHandles[Kind] := THandleWindow.CreateGrabHandle(Kind, AOnDrag, AColor);
 end;
 
 destructor THandleSet.Destroy;

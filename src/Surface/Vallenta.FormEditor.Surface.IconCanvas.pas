@@ -256,7 +256,8 @@ begin
   // its pre-drag position before the entry is recorded.
   SetTilePosition(Dropped, Origin.X, Origin.Y);
   FDesigner.PushUndo(uoMove);
-  FDesigner.MoveTile(Dropped, Position.X, Position.Y);
+  if not FDesigner.MoveTile(Dropped, Position.X, Position.Y) then
+    FDesigner.DropUndo;
 end;
 
 procedure TIconSurface.KeyDown(var Key: Word; Shift: TShiftState);

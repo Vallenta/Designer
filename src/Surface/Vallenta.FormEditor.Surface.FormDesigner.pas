@@ -49,16 +49,39 @@ type
   TDragKind = (dkNone, dkPending, dkMove, dkResize, dkCreatePending, dkCreate,
     dkMarqueePending, dkMarquee);
 
-  // Horizontal align action; ahLeft, ahCenters and ahRight take the primary
-  // selection as reference.
+  // Horizontal align action. ahLeft, ahCenters and ahRight measure against
+  // the selection as a whole: the leftmost edge in it, its center, and the
+  // rightmost edge.
   TAlignHorizontal = (ahNone, ahLeft, ahCenters, ahRight, ahSpaceEqually,
     ahCenterInWindow);
-  // Vertical align action; avTop, avMiddles and avBottom take the primary
-  // selection as reference.
+  // Vertical align action. avTop, avMiddles and avBottom measure against the
+  // selection as a whole: its topmost edge, its center, and its bottommost.
   TAlignVertical = (avNone, avTop, avMiddles, avBottom, avSpaceEqually,
     avCenterInWindow);
   // Size-matching action; smFromPrimary copies the primary selection's extent.
   TSizeMatch = (smNone, smFromPrimary);
+
+  // One bound of a control's rectangle.
+  TOwnedBound = (obLeft, obTop, obWidth, obHeight);
+  // Bounds a control's parent decides for it, which a group command leaves
+  // alone: writing one is undone by the parent's next layout pass.
+  TOwnedBounds = set of TOwnedBound;
+
+  // What an align action needs in the selection before it writes anything:
+  // one control it may position, two to have an edge to measure between, or
+  // the three a space-equally action spreads.
+  TAlignDemand = (adNothing, adOneTarget, adTwoMembers, adThreeTargets);
+
+  // What a group command has to work with in the current selection.
+  TGroupReach = record
+    // Selected controls sharing the reference control's container.
+    Members: Integer;
+    // Members the parent leaves the needed bounds to, and how many of those
+    // are not the reference itself. An action measuring against the reference
+    // writes nothing while only the reference can take it.
+    Writable: Integer;
+    WritableOthers: Integer;
+  end;
 
   // End of a parent's child order a z-order step moves a control to. The
   // front is the topmost control and the last one written to the form file.
@@ -109,6 +132,7 @@ type
     FOnRedoRequest: TNotifyEvent;
     FOnContextMenu: TNotifyEvent;
     FOnSelectionChanged: TNotifyEvent;
+    FOnCommandsChanged: TNotifyEvent;
     FOnStructureChanged: TNotifyEvent;
     FOnGeometryChanged: TNotifyEvent;
     FOnDirtyChanged: TNotifyEvent;
@@ -123,7 +147,7 @@ type
     FLoadedState: TLoadedFormState;
     FSelected: TComponent;
     FSelection: TList<TComponent>;
-    FOutlines: TObjectList<TDragFrame>;
+    FSecondaryHandles: TObjectList<THandleSet>;
     FHandles: THandleSet;
     FTiles: TTileLayer;
     FDirty: Boolean;
@@ -180,6 +204,7 @@ type
     procedure StructureChanged;
     procedure SetCodeCoupling(const AValue: ICodeCoupling);
     procedure SurfaceSelectionChanged;
+    procedure NotifyCommands;
     procedure SinkChrome;
     procedure DeletePlaceholder(APiece: TPreservedPiece);
     procedure DropPreservedIn(AComponent: TComponent);
@@ -229,13 +254,17 @@ type
     function ComputeMarqueeRect(const CursorPos: TPoint): TRect;
     function SelectedControls: TArray<TControl>;
     function SiblingIndex(AControl: TControl): Integer;
-    function PrimaryBounds: TRect;
-    procedure UpdateOutlines;
+    function PrimaryControl: TControl;
+    function GroupReach(ANeeded: TOwnedBounds): TGroupReach;
+    procedure ReportKept(AParentOwned, AForeign: Integer;
+      const AOwnedReason: string);
+    procedure UpdateSecondaryHandles;
     procedure UpdateHandles;
     procedure UpdateTiles;
     procedure InvalidateSurface;
     procedure SyncFrameHost;
-    procedure ApplyBounds(AControl: TControl; ALeft, ATop, AWidth, AHeight: Integer);
+    function ApplyBounds(AControl: TControl; ALeft, ATop, AWidth,
+      AHeight: Integer): Boolean;
     function ComputeDragRect(const CursorPos: TPoint): TRect;
     procedure CommitDrag;
     procedure CancelDrag;
@@ -368,15 +397,34 @@ type
     // Raises OnContextMenu; entry point for surfaces with their own input
     // handling, e.g. the icon canvas.
     procedure RequestContextMenu;
-    // Aligns the selected controls to the primary selection. The
-    // center-in-window actions use the parent's client area instead and move
-    // a single selected control as well; the space-equally actions distribute
-    // the middle controls between the outermost two.
+    // Aligns the selected controls to the extent the selection spans: its
+    // leftmost edge, its center, its rightmost edge, and the same over the
+    // vertical. The center-in-window actions use the parent's client area
+    // instead and move a single selected control as well; the space-equally
+    // actions distribute the middle controls between the outermost two. A
+    // control whose position its parent decides, and one sitting in another
+    // container than the primary, are left alone and reported.
     procedure AlignSelection(AHorizontal: TAlignHorizontal;
       AVertical: TAlignVertical);
     // Sizes the selected controls to the primary selection's width, its
-    // height, or both.
+    // height, or both. A dimension the parent decides is left alone, one
+    // dimension at a time: an alTop control keeps its width and takes a
+    // height.
     procedure SizeSelection(AWidth, AHeight: TSizeMatch);
+    // True when this one align action has something to write. The actions
+    // differ in what they need: centering in the container reaches a lone
+    // control, aligning to the selection's extent needs a second control to
+    // span one, and spacing equally needs SpaceEquallyMinimum. False for a
+    // guarded document.
+    function CanAlign(AHorizontal: TAlignHorizontal;
+      AVertical: TAlignVertical): Boolean;
+    // True when any align action at all has something to write, which is the
+    // weakest of the three demands above.
+    function CanAlignSelection: Boolean;
+    // True when SizeSelection has a dimension to write: a selected control
+    // besides the primary, in its container, whose extent its parent leaves
+    // to it.
+    function CanSizeSelection: Boolean;
     // Moves the selected controls to one end of their parent's child order,
     // which is their z-order and the order they are written in. Graphic and
     // windowed controls each move within their own group: the VCL keeps every
@@ -403,8 +451,9 @@ type
     // module's icon canvas, which routes its own clicks.
     procedure PlaceArmedAt(X, Y: Integer);
     // Moves a non-visual component's tile to X,Y, which is stored in the
-    // component's DesignInfo.
-    procedure MoveTile(AComponent: TComponent; X, Y: Integer);
+    // component's DesignInfo. False when the tile stayed where it was, the
+    // stored position being clamped to a word.
+    function MoveTile(AComponent: TComponent; X, Y: Integer): Boolean;
     // Arrow-key gesture: plain moves the selection by one grid step, Ctrl
     // moves by 1 px, Shift resizes the primary by 1 px.
     procedure NudgeSelection(CharCode: Word; Shift: TShiftState);
@@ -558,6 +607,13 @@ type
     // Raised after every selection change.
     property OnSelectionChanged: TNotifyEvent read FOnSelectionChanged
       write FOnSelectionChanged;
+    // Raised where the answer of CanAlign, CanAlignSelection or
+    // CanSizeSelection may have changed: a new selection, and the guard going
+    // up or down. A view showing those answers refreshes here rather than on
+    // the action-update cycle, which a form runs for its top-most menu items
+    // only and therefore not while a menu stays shut.
+    property OnCommandsChanged: TNotifyEvent read FOnCommandsChanged
+      write FOnCommandsChanged;
     // Raised when components were added, removed, renamed or reordered.
     property OnStructureChanged: TNotifyEvent read FOnStructureChanged
       write FOnStructureChanged;
@@ -607,6 +663,11 @@ const
   ClipboardAttempts = 10;
   ClipboardRetryDelay = 20; // ms
 
+  // Controls a space-equally action needs: it spreads the gaps between the
+  // outermost two over everything in between, and below three there is
+  // nothing in between.
+  SpaceEquallyMinimum = 3;
+
 implementation
 
 uses
@@ -635,12 +696,12 @@ begin
   FSelected := ARoot;
   FSelection := TList<TComponent>.Create;
   FSelection.Add(ARoot);
-  FOutlines := TObjectList<TDragFrame>.Create(True);
+  FSecondaryHandles := TObjectList<THandleSet>.Create(True);
   FLog := ALog;
   FGridSize := DefaultGridSize;
   FSnapToGrid := True;
   FIconProvider := IconProviderOver(TGenericGlyphProvider.Create);
-  FHandles := THandleSet.Create(HandleDrag);
+  FHandles := THandleSet.Create(HandleDrag, PrimaryHandleColor);
   FDragFrame := TDragFrame.Create;
   // Chrome is parented into the host window, never into a designed container:
   // a container that manages its children (a TToolBar) would give it a slot.
@@ -768,6 +829,13 @@ begin
   end;
   if Assigned(FOnSelectionChanged) then
     FOnSelectionChanged(Self);
+  NotifyCommands;
+end;
+
+procedure TFormDesigner.NotifyCommands;
+begin
+  if Assigned(FOnCommandsChanged) then
+    FOnCommandsChanged(Self);
 end;
 
 procedure TFormDesigner.SurfaceSelectionChanged;
@@ -912,7 +980,7 @@ begin
   FRootCanvas.Free;
   FTiles.Free;
   FDragFrame.Free;
-  FOutlines.Free;
+  FSecondaryHandles.Free;
   FSelection.Free;
   FHandles.Free;
   FSettledImage.Free;
@@ -1084,18 +1152,18 @@ begin
   FUndoStack.PushImage(Image, uoEditor, FSelected.Name);
 end;
 
-// Grab handles, drag frame and outlines are entries in their parent's tab
-// list; streaming before they are sunk writes TabOrder values that count them.
+// Grab handles and drag frame are entries in their parent's tab list;
+// streaming before they are sunk writes TabOrder values that count them.
 procedure TFormDesigner.SinkChrome;
 var
-  Outline: TDragFrame;
+  Handles: THandleSet;
 begin
   FHandles.SinkInTabOrder;
   FDragFrame.SinkInTabOrder;
   if FTiles <> nil then
     SinkBehindSiblings(FTiles);
-  for Outline in FOutlines do
-    Outline.SinkInTabOrder;
+  for Handles in FSecondaryHandles do
+    Handles.SinkInTabOrder;
 end;
 
 function TFormDesigner.CaptureSnapshot: TDocumentSnapshot;
@@ -2278,6 +2346,7 @@ var
   Position: TPoint;
   Target: TControl;
   Item: TComponent;
+  Moved: Boolean;
 begin
   if (FDragKind <> dkNone) or IsPlaceholder(FSelected) or FGuarded then
     Exit;
@@ -2302,14 +2371,16 @@ begin
       Exit;
     Target := TControl(FSelected);
     PushUndo(uoNudge);
-    ApplyBounds(Target, Target.Left, Target.Top, Target.Width + DX,
-      Target.Height + DY);
+    if not ApplyBounds(Target, Target.Left, Target.Top, Target.Width + DX,
+      Target.Height + DY) then
+      DropUndo;
     Exit;
   end;
 
   if (FSelection.Count = 1) and (FSelected = FRoot) then
     Exit;
   PushUndo(uoNudge);
+  Moved := False;
   for Item in FSelection do
   begin
     if (Item = FRoot) or IsPlaceholder(Item) then
@@ -2317,15 +2388,17 @@ begin
     if Item is TControl then
     begin
       Target := TControl(Item);
-      ApplyBounds(Target, Target.Left + DX, Target.Top + DY, Target.Width,
-        Target.Height);
+      Moved := ApplyBounds(Target, Target.Left + DX, Target.Top + DY,
+        Target.Width, Target.Height) or Moved;
     end
     else if IsNonVisual(Item) then
     begin
       Position := TilePosition(Item);
-      MoveTile(Item, Position.X + DX, Position.Y + DY);
+      Moved := MoveTile(Item, Position.X + DX, Position.Y + DY) or Moved;
     end;
   end;
+  if not Moved then
+    DropUndo;
   UpdateHandles;
 end;
 
@@ -2905,30 +2978,39 @@ begin
     FHandles.ShowFor(FSelected)
   else
     FHandles.ShowFor(nil);
-  UpdateOutlines;
+  UpdateSecondaryHandles;
 end;
 
-procedure TFormDesigner.UpdateOutlines;
+// The sets are kept and re-targeted rather than rebuilt: a nudge calls this
+// for every arrow key, and eight windows per member would be destroyed and
+// recreated under the cursor each time.
+procedure TFormDesigner.UpdateSecondaryHandles;
 var
   Item: TComponent;
   Control: TControl;
-  Outline: TDragFrame;
+  Handles: THandleSet;
+  Used: Integer;
 begin
-  FOutlines.Clear;
-  if FSelection.Count < 2 then
-    Exit;
-  for Item in FSelection do
-  begin
-    if (Item = FSelected) or not (Item is TControl) then
-      Continue;
-    Control := TControl(Item);
-    if Control.Parent = nil then
-      Continue;
-    Outline := TDragFrame.Create;
-    Outline.Chrome := FForm;
-    FOutlines.Add(Outline);
-    Outline.ShowRect(Control.Parent, Control.BoundsRect);
-  end;
+  Used := 0;
+  if FSelection.Count > 1 then
+    for Item in FSelection do
+    begin
+      if (Item = FSelected) or not (Item is TControl) then
+        Continue;
+      Control := TControl(Item);
+      if Control.Parent = nil then
+        Continue;
+      if Used = FSecondaryHandles.Count then
+      begin
+        Handles := THandleSet.Create(nil, SecondaryHandleColor);
+        Handles.Chrome := FForm;
+        FSecondaryHandles.Add(Handles);
+      end;
+      FSecondaryHandles[Used].ShowFor(Control);
+      Inc(Used);
+    end;
+  while FSecondaryHandles.Count > Used do
+    FSecondaryHandles.Delete(FSecondaryHandles.Count - 1);
 end;
 
 procedure TFormDesigner.SelectComponent(AComponent: TComponent);
@@ -3049,17 +3131,22 @@ begin
       Result := Result + [TControl(Item)];
 end;
 
-function TFormDesigner.PrimaryBounds: TRect;
+// The control a group command works in the container of, and the one a size
+// takes its extent from: the primary selection when that is a control,
+// otherwise the first selected one, which is what a selection of tiles with
+// one control in it leaves. An align measures against the whole selection and
+// uses this only for the container.
+function TFormDesigner.PrimaryControl: TControl;
 var
   Items: TArray<TControl>;
 begin
   if (FSelected is TControl) and not IsPlaceholder(FSelected) then
-    Exit(TControl(FSelected).BoundsRect);
+    Exit(TControl(FSelected));
   Items := SelectedControls;
   if Length(Items) > 0 then
-    Result := Items[0].BoundsRect
+    Result := Items[0]
   else
-    Result := TRect.Empty;
+    Result := nil;
 end;
 
 procedure TFormDesigner.SelectParent;
@@ -3131,6 +3218,7 @@ var
   Item: TComponent;
   Control: TControl;
   Position: TPoint;
+  Moved: Boolean;
 begin
   if FSelected = FRoot then
     Exit;
@@ -3139,13 +3227,15 @@ begin
   if FDragKind = dkResize then
   begin
     PushUndo(uoResize);
-    ApplyBounds(TControl(FSelected), FDragRect.Left, FDragRect.Top,
-      FDragRect.Width, FDragRect.Height);
+    if not ApplyBounds(TControl(FSelected), FDragRect.Left, FDragRect.Top,
+      FDragRect.Width, FDragRect.Height) then
+      DropUndo;
     Exit;
   end;
   PushUndo(uoMove);
   DX := FDragRect.Left - FDragOrigin.Left;
   DY := FDragRect.Top - FDragOrigin.Top;
+  Moved := False;
   for Item in FSelection do
   begin
     if (Item = FRoot) or IsPlaceholder(Item) then
@@ -3153,15 +3243,17 @@ begin
     if Item is TControl then
     begin
       Control := TControl(Item);
-      ApplyBounds(Control, Control.Left + DX, Control.Top + DY, Control.Width,
-        Control.Height);
+      Moved := ApplyBounds(Control, Control.Left + DX, Control.Top + DY,
+        Control.Width, Control.Height) or Moved;
     end
     else if IsNonVisual(Item) then
     begin
       Position := TilePosition(Item);
-      MoveTile(Item, Position.X + DX, Position.Y + DY);
+      Moved := MoveTile(Item, Position.X + DX, Position.Y + DY) or Moved;
     end;
   end;
+  if not Moved then
+    DropUndo;
   UpdateHandles;
 end;
 
@@ -3188,14 +3280,24 @@ begin
   UpdateTiles;
 end;
 
-procedure TFormDesigner.ApplyBounds(AControl: TControl;
-  ALeft, ATop, AWidth, AHeight: Integer);
+// The rectangle is read back rather than assumed: a control whose parent
+// decides its bounds is put straight back, and one with Constraints takes
+// less than it was given. Reporting that as an edit would mark the document
+// dirty for a gesture that changed nothing.
+function TFormDesigner.ApplyBounds(AControl: TControl;
+  ALeft, ATop, AWidth, AHeight: Integer): Boolean;
+var
+  Before: TRect;
 begin
   if AWidth < 1 then
     AWidth := 1;
   if AHeight < 1 then
     AHeight := 1;
+  Before := AControl.BoundsRect;
   AControl.SetBounds(ALeft, ATop, AWidth, AHeight);
+  Result := AControl.BoundsRect <> Before;
+  if not Result then
+    Exit;
   if TComponent(AControl) = FRoot then
     SyncFrameHost;
   FHandles.Update;
@@ -3204,9 +3306,15 @@ begin
     FOnGeometryChanged(Self);
 end;
 
-procedure TFormDesigner.MoveTile(AComponent: TComponent; X, Y: Integer);
+function TFormDesigner.MoveTile(AComponent: TComponent; X, Y: Integer): Boolean;
+var
+  Before: TPoint;
 begin
+  Before := TilePosition(AComponent);
   SetTilePosition(AComponent, X, Y);
+  Result := TilePosition(AComponent) <> Before;
+  if not Result then
+    Exit;
   InvalidateSurface;
   Modified;
   if Assigned(FOnGeometryChanged) then
@@ -3214,6 +3322,83 @@ begin
 end;
 
 { group commands }
+
+// The bounds AControl's parent decides from its Align property. An alTop
+// control keeps its own height and an alLeft one its own width; everything
+// else about their rectangle is written by the parent's layout pass. The rule
+// behind alCustom is the parent's own, so nothing about it is assumed.
+function ParentOwnedBounds(AControl: TControl): TOwnedBounds;
+begin
+  case AControl.Align of
+    alTop, alBottom: Result := [obLeft, obTop, obWidth];
+    alLeft, alRight: Result := [obLeft, obTop, obHeight];
+    alClient, alCustom: Result := [obLeft, obTop, obWidth, obHeight];
+  else
+    Result := [];
+  end;
+end;
+
+// What one align action needs in the selection before it can write anything.
+function HorizontalDemand(AAction: TAlignHorizontal): TAlignDemand;
+begin
+  case AAction of
+    ahNone: Result := adNothing;
+    ahCenterInWindow: Result := adOneTarget;
+    ahSpaceEqually: Result := adThreeTargets;
+  else
+    Result := adTwoMembers;
+  end;
+end;
+
+function VerticalDemand(AAction: TAlignVertical): TAlignDemand;
+begin
+  case AAction of
+    avNone: Result := adNothing;
+    avCenterInWindow: Result := adOneTarget;
+    avSpaceEqually: Result := adThreeTargets;
+  else
+    Result := adTwoMembers;
+  end;
+end;
+
+// Everything is zero while the document is guarded, so every predicate built
+// on this refuses an edit the commands would refuse anyway.
+function TFormDesigner.GroupReach(ANeeded: TOwnedBounds): TGroupReach;
+var
+  Primary, Item: TControl;
+begin
+  Result := Default(TGroupReach);
+  if FGuarded then
+    Exit;
+  Primary := PrimaryControl;
+  if Primary = nil then
+    Exit;
+  for Item in SelectedControls do
+    if Item.Parent = Primary.Parent then
+    begin
+      Inc(Result.Members);
+      if ANeeded - ParentOwnedBounds(Item) = [] then
+        Continue;
+      Inc(Result.Writable);
+      if Item <> Primary then
+        Inc(Result.WritableOthers);
+    end;
+end;
+
+// Says in the messages pane what a group command left alone. AOwnedReason
+// completes "%d control(s) ", the command naming what it could not write.
+procedure TFormDesigner.ReportKept(AParentOwned, AForeign: Integer;
+  const AOwnedReason: string);
+begin
+  if FLog = nil then
+    Exit;
+  if AParentOwned > 0 then
+    FLog.AddFmt(lsWarn, '%d control(s) %s', [AParentOwned, AOwnedReason]);
+  if AForeign > 0 then
+    FLog.AddFmt(lsWarn, '%d control(s) were left alone: they sit in a ' +
+      'different container than the component selected last, in whose ' +
+      'coordinates the command measures', [AForeign]);
+end;
 
 function HoldsPlaceholder(AParent: TWinControl; AKind: TControlClass): Boolean;
 var
@@ -3232,7 +3417,7 @@ var
   Sorted: TArray<TControl>;
   Extent, Gap, Position, I: Integer;
 begin
-  if Length(AItems) < 3 then
+  if Length(AItems) < SpaceEquallyMinimum then
     Exit;
   Sorted := Copy(AItems);
   if AHorizontal then
@@ -3368,74 +3553,201 @@ begin
   StructureChanged;
 end;
 
+// The actions measure against the whole selection rather than against one
+// member of it: aligning to the left takes the leftmost edge in the selection,
+// centering takes the center of everything it spans. The result is therefore
+// the same whatever order the selection was built in.
+//
+// The extent covers every member, the ones that cannot move included: a
+// control its parent positions is a fixed edge of the selection, and the
+// leftmost edge is the leftmost edge whether or not the control holding it can
+// follow. Every Align value other than alNone decides both Left and Top, so
+// such a control is refused as a target outright rather than one axis at a
+// time.
 procedure TFormDesigner.AlignSelection(AHorizontal: TAlignHorizontal;
   AVertical: TAlignVertical);
 var
-  Items: TArray<TControl>;
-  Item: TControl;
-  Reference, Area: TRect;
+  Targets: TArray<TControl>;
+  Before: TArray<TRect>;
+  Item, Primary: TControl;
+  Extent, Area: TRect;
+  Kept, Foreign, I: Integer;
+  Changed, Spanned: Boolean;
 begin
   if ((AHorizontal = ahNone) and (AVertical = avNone)) or FGuarded then
     Exit;
-  Items := SelectedControls;
-  if Length(Items) = 0 then
+  Primary := PrimaryControl;
+  if Primary = nil then
     Exit;
-  Reference := PrimaryBounds;
-  PushUndo(uoMove);
-  for Item in Items do
+  Targets := nil;
+  Extent := TRect.Empty;
+  Spanned := False;
+  Kept := 0;
+  Foreign := 0;
+  for Item in SelectedControls do
+    if Item.Parent <> Primary.Parent then
+      Inc(Foreign)
+    else
+    begin
+      if Spanned then
+        Extent := TRect.Union(Extent, Item.BoundsRect)
+      else
+        Extent := Item.BoundsRect;
+      Spanned := True;
+      if ParentOwnedBounds(Item) * [obLeft, obTop] <> [] then
+        Inc(Kept)
+      else
+        Targets := Targets + [Item];
+    end;
+  if Length(Targets) > 0 then
   begin
-    Area := TRect.Empty;
-    if Item.Parent <> nil then
-      Area := Item.Parent.ClientRect;
-    case AHorizontal of
-      ahLeft: Item.Left := Reference.Left;
-      ahCenters: Item.Left := Reference.Left + (Reference.Width - Item.Width) div 2;
-      ahRight: Item.Left := Reference.Right - Item.Width;
-      ahCenterInWindow: Item.Left := (Area.Width - Item.Width) div 2;
+    SetLength(Before, Length(Targets));
+    for I := 0 to High(Targets) do
+      Before[I] := Targets[I].BoundsRect;
+    PushUndo(uoMove);
+    for Item in Targets do
+    begin
+      Area := TRect.Empty;
+      if Item.Parent <> nil then
+        Area := Item.Parent.ClientRect;
+      case AHorizontal of
+        ahLeft: Item.Left := Extent.Left;
+        ahCenters: Item.Left := Extent.Left + (Extent.Width - Item.Width) div 2;
+        ahRight: Item.Left := Extent.Right - Item.Width;
+        ahCenterInWindow: Item.Left := (Area.Width - Item.Width) div 2;
+      end;
+      case AVertical of
+        avTop: Item.Top := Extent.Top;
+        avMiddles: Item.Top := Extent.Top + (Extent.Height - Item.Height) div 2;
+        avBottom: Item.Top := Extent.Bottom - Item.Height;
+        avCenterInWindow: Item.Top := (Area.Height - Item.Height) div 2;
+      end;
     end;
-    case AVertical of
-      avTop: Item.Top := Reference.Top;
-      avMiddles: Item.Top := Reference.Top + (Reference.Height - Item.Height) div 2;
-      avBottom: Item.Top := Reference.Bottom - Item.Height;
-      avCenterInWindow: Item.Top := (Area.Height - Item.Height) div 2;
-    end;
+    if AHorizontal = ahSpaceEqually then
+      SpaceEqually(Targets, True);
+    if AVertical = avSpaceEqually then
+      SpaceEqually(Targets, False);
+    Changed := False;
+    for I := 0 to High(Targets) do
+      Changed := Changed or (Targets[I].BoundsRect <> Before[I]);
+    if Changed then
+    begin
+      UpdateHandles;
+      InvalidateSurface;
+      Modified;
+      if Assigned(FOnGeometryChanged) then
+        FOnGeometryChanged(Self);
+    end
+    else
+      DropUndo;
   end;
-  if AHorizontal = ahSpaceEqually then
-    SpaceEqually(Items, True);
-  if AVertical = avSpaceEqually then
-    SpaceEqually(Items, False);
-  UpdateHandles;
-  InvalidateSurface;
-  Modified;
-  if Assigned(FOnGeometryChanged) then
-    FOnGeometryChanged(Self);
+  ReportKept(Kept, Foreign, 'were not aligned: their Align property leaves ' +
+    'their position to their parent');
 end;
 
+// Unlike an align, a size is refused one dimension at a time: an alTop
+// control keeps its own height and takes one, an alLeft one its own width.
 procedure TFormDesigner.SizeSelection(AWidth, AHeight: TSizeMatch);
 var
-  Items: TArray<TControl>;
-  Item: TControl;
+  Targets: TArray<TControl>;
+  Before: TArray<TRect>;
+  Item, Primary: TControl;
   Reference: TRect;
+  Needed, Owned: TOwnedBounds;
+  Kept, Foreign, I: Integer;
+  Changed: Boolean;
 begin
   if ((AWidth = smNone) and (AHeight = smNone)) or FGuarded then
     Exit;
-  Items := SelectedControls;
-  if Length(Items) = 0 then
+  Primary := PrimaryControl;
+  if Primary = nil then
     Exit;
-  Reference := PrimaryBounds;
-  PushUndo(uoResize);
-  for Item in Items do
+  Reference := Primary.BoundsRect;
+  Needed := [];
+  if AWidth = smFromPrimary then
+    Include(Needed, obWidth);
+  if AHeight = smFromPrimary then
+    Include(Needed, obHeight);
+  Targets := nil;
+  Kept := 0;
+  Foreign := 0;
+  for Item in SelectedControls do
+    if Item.Parent <> Primary.Parent then
+      Inc(Foreign)
+    else
+    begin
+      Owned := ParentOwnedBounds(Item);
+      if Needed - Owned <> [] then
+        Targets := Targets + [Item];
+      // Counted even when the other dimension is written: the command did
+      // less to this control than it was asked for.
+      if Needed * Owned <> [] then
+        Inc(Kept);
+    end;
+  if Length(Targets) > 0 then
   begin
-    if AWidth = smFromPrimary then
-      Item.Width := Reference.Width;
-    if AHeight = smFromPrimary then
-      Item.Height := Reference.Height;
+    SetLength(Before, Length(Targets));
+    for I := 0 to High(Targets) do
+      Before[I] := Targets[I].BoundsRect;
+    PushUndo(uoResize);
+    for Item in Targets do
+    begin
+      Owned := ParentOwnedBounds(Item);
+      if (AWidth = smFromPrimary) and not (obWidth in Owned) then
+        Item.Width := Reference.Width;
+      if (AHeight = smFromPrimary) and not (obHeight in Owned) then
+        Item.Height := Reference.Height;
+    end;
+    Changed := False;
+    for I := 0 to High(Targets) do
+      Changed := Changed or (Targets[I].BoundsRect <> Before[I]);
+    if Changed then
+    begin
+      UpdateHandles;
+      InvalidateSurface;
+      Modified;
+      if Assigned(FOnGeometryChanged) then
+        FOnGeometryChanged(Self);
+    end
+    else
+      DropUndo;
   end;
-  UpdateHandles;
-  InvalidateSurface;
-  Modified;
-  if Assigned(FOnGeometryChanged) then
-    FOnGeometryChanged(Self);
+  ReportKept(Kept, Foreign, 'kept a dimension their Align property leaves to ' +
+    'their parent');
+end;
+
+function TFormDesigner.CanAlign(AHorizontal: TAlignHorizontal;
+  AVertical: TAlignVertical): Boolean;
+var
+  Reach: TGroupReach;
+
+  function Met(ADemand: TAlignDemand): Boolean;
+  begin
+    case ADemand of
+      adOneTarget: Result := Reach.Writable > 0;
+      adTwoMembers: Result := (Reach.Members > 1) and (Reach.Writable > 0);
+      adThreeTargets: Result := Reach.Writable >= SpaceEquallyMinimum;
+    else
+      Result := False;
+    end;
+  end;
+
+begin
+  Reach := GroupReach([obLeft, obTop]);
+  // Either axis on its own is enough: a request setting both writes what it
+  // can and reports the rest.
+  Result := Met(HorizontalDemand(AHorizontal)) or
+    Met(VerticalDemand(AVertical));
+end;
+
+function TFormDesigner.CanAlignSelection: Boolean;
+begin
+  Result := GroupReach([obLeft, obTop]).Writable > 0;
+end;
+
+function TFormDesigner.CanSizeSelection: Boolean;
+begin
+  Result := GroupReach([obWidth, obHeight]).WritableOthers > 0;
 end;
 
 // Each TabOrder write shifts the entries after it, so assigning front to back
@@ -3536,6 +3848,7 @@ end;
 procedure TFormDesigner.GuardReadOnly;
 begin
   FGuarded := True;
+  NotifyCommands;
 end;
 
 procedure TFormDesigner.LiftGuard;
@@ -3543,6 +3856,7 @@ begin
   if not FGuarded then
     Exit;
   FGuarded := False;
+  NotifyCommands;
   if FLog <> nil then
     FLog.Add(lsWarn, 'the read-only guard was lifted - saving with ' +
       'unresolved references is this user''s call from here on');

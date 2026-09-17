@@ -88,6 +88,7 @@
         <DCCReference Include="Vallenta.FormEditor.Tests.RegisterExports.pas"/>
         <DCCReference Include="Vallenta.FormEditor.Tests.ZOrder.pas"/>
         <DCCReference Include="Vallenta.FormEditor.Tests.Clipboard.pas"/>
+        <DCCReference Include="Vallenta.FormEditor.Tests.Align.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

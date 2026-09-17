@@ -161,6 +161,10 @@ object MainDesignerForm: TMainDesignerForm
         Action = ToggleMessagesAction
         AutoCheck = True
       end
+      object ViewAlignPaletteItem: TMenuItem
+        Action = ToggleAlignPaletteAction
+        AutoCheck = True
+      end
     end
     object ToolsMenu: TMenuItem
       Caption = '&Tools'
@@ -259,6 +263,11 @@ object MainDesignerForm: TMainDesignerForm
       Category = 'View'
       Caption = '&Messages'
       OnExecute = ToggleMessagesActionExecute
+    end
+    object ToggleAlignPaletteAction: TAction
+      Category = 'View'
+      Caption = '&Alignment Bar'
+      OnExecute = ToggleAlignPaletteActionExecute
     end
     object PackagesAction: TAction
       Category = 'Tools'
