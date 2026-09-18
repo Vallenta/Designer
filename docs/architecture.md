@@ -103,11 +103,13 @@ The VCL style is not linked into the executable. `Windows Modern` ships only
 with Delphi 13.1 and later, and 13.0 reports the same `ProductVersion` and
 `CompilerVersion` as 13.1, so neither the props file nor `Core.Settings` can tell
 whether the release carries it; a linked `.vsf` the release lacks fails the
-resource step before the compiler runs. The program therefore loads the style at
-startup from the `Styles` folder of the release's shared documents directory,
-`$(BDSCOMMONDIR)`: `WindowsModern.vsf`, otherwise `Windows10.vsf`, and with
-neither present the system style remains active. The style file is thereby read
-from the same installation as the runtime packages that render it.
+resource step before the compiler runs. The program therefore loads
+`WindowsModern.vsf` at startup from the `Styles` folder of the release's shared
+documents directory, `$(BDSCOMMONDIR)`, and a release without the file keeps the
+system style. `Windows10.vsf`, which every release ships, is not used as a
+stand-in: its flat grey buttons and tabs are further from Windows Modern than the
+system style is on Windows 10 and 11. The style file is thereby read from the
+same installation as the runtime packages that render it.
 
 ## Directory Structure
 

@@ -891,10 +891,11 @@ const
   RemoteRefusal = 'this designer has no remote profile support';
 
   // GUID-to-name table for the refusal report; a GUID that is not listed is
-  // still reported, without a name. All but IOTAProjectManager are served,
-  // and the entries remain because a package can ask for a version of one of
-  // these interfaces that this stub does not implement.
-  KnownServices: array [0..8] of TKnownService = (
+  // still reported, without a name. IOTAProjectManager and the IDE theming
+  // services are not served; the others are, and their entries remain because
+  // a package can ask for a version of one of these interfaces that this stub
+  // does not implement.
+  KnownServices: array [0..11] of TKnownService = (
     (Guid: '{29E893DB-DD9A-4CEA-B2EE-57532E01A9B9}';
       Name: 'IOTAMessageServices'),
     (Guid: '{88EAA6AC-B8C0-42F7-9C00-E5D31B815998}';
@@ -912,7 +913,13 @@ const
     (Guid: '{B142EF92-0A91-4614-A72A-CE46F9C88B7B}';
       Name: 'IOTAProjectManager'),
     (Guid: '{68C486EF-C079-4D40-B462-2C0DD21FE342}';
-      Name: 'IOTACompileServices'));
+      Name: 'IOTACompileServices'),
+    (Guid: '{DEAD2647-9B2C-4084-A61E-1E69A9179637}';
+      Name: 'IOTAIDEThemingServices'),
+    (Guid: '{BDEBDA9B-7001-4A25-9639-A3699AE9FC51}';
+      Name: 'IOTAIDEThemingServices260'),
+    (Guid: '{DEAD2648-9B21-4084-771E-1E69A9176637}';
+      Name: 'IOTAIDEThemingServices250'));
 
   // Component names of the IDE main menu's top-level items, which is how a
   // package addresses them.

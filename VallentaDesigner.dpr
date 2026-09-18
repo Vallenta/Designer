@@ -80,27 +80,19 @@ uses
 
 {$R *.res}
 
-// Loads the style from the installed release instead of linking it: a linked
-// .vsf the release lacks fails the resource step.
+// Loads WindowsModern.vsf from the installed release instead of linking it: a
+// linked .vsf the release lacks fails the resource step. A release without the
+// file, before Delphi 13.1, keeps the system style.
 procedure ApplyDesignerStyle;
-const
-  // Preference order; WindowsModern.vsf ships only with Delphi 13.1 and later.
-  StyleFiles: array [0..1] of string = ('WindowsModern.vsf', 'Windows10.vsf');
 var
-  Directory, StyleFile, Path: string;
+  Directory, Path: string;
 begin
   Directory := IdeCommonDirectory;
   if Directory = '' then
     Exit;
-  for StyleFile in StyleFiles do
-  begin
-    Path := Directory + '\Styles\' + StyleFile;
-    if FileExists(Path) and TStyleManager.IsValidStyle(Path) then
-    begin
-      TStyleManager.SetStyle(TStyleManager.LoadFromFile(Path));
-      Exit;
-    end;
-  end;
+  Path := Directory + '\Styles\WindowsModern.vsf';
+  if FileExists(Path) and TStyleManager.IsValidStyle(Path) then
+    TStyleManager.SetStyle(TStyleManager.LoadFromFile(Path));
 end;
 
 procedure RunServe;

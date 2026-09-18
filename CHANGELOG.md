@@ -15,7 +15,8 @@ All notable changes to **Vallenta Designer** will be documented in this file. Ve
 - **Package loading, an exception the VCL handles itself** — such an exception is now written to the log with its stack instead of being shown in a message box.
 - **Align commands** — an align measures against the extent the selection spans, whatever order the selection was built in.
 - **Align and same size, a component whose `Align` property leaves its bounds to its parent** — the component keeps its bounds and the messages pane reports how many were left alone.
-- **VCL style** — loaded at startup from the `Styles` folder of the Delphi release the designer runs against instead of being linked into the executable: Windows Modern where the release ships it, otherwise Windows10.
+- **VCL style** — loaded at startup from the `Styles` folder of the Delphi release the designer runs against instead of being linked into the executable: Windows Modern where the release ships it, otherwise the system style.
+- **Packages, log of refused IDE services** — a request for the IDE theming service is reported by its interface name instead of its GUID.
 
 ### Fixed
 - **Design surface** — the form takes mouse input where it is displayed, also after a pane beside it is resized or the surface is scrolled.
