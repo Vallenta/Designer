@@ -21,6 +21,7 @@ type
     pvMissing,      // no file at the path
     pvArchitecture, // not a 32-bit x86 image
     pvRelease,      // imports an rtl or vcl package of another release
+    pvIdeWindow,    // derives a window from the IDE's dockable form
     pvDuplicate,    // listed in AChosen, or that file name is loaded already
     pvUnreadable);  // not a readable PE image
 
@@ -45,6 +46,12 @@ function InspectPackage(const APath: string;
 // the package information cannot be read, which skips the release check.
 function HostRuntimeRelease: string;
 
+// True when AImports, names imported from the IDE's design package, include
+// a member of Dockform.TDockableForm. A window derived from that class
+// subscribes at creation to a desktop event that only the IDE creates, so
+// no other host can construct it.
+function DerivesIdeWindow(const AImports: TArray<string>): Boolean;
+
 implementation
 
 uses
@@ -59,28 +66,55 @@ const
   MachineAmd64 = $8664;
   MachineArm64 = $AA64;
   PackageExtension = '.bpl';
+  // The IDE's design package without release digits and extension, and the
+  // mangled prefix of the dockable form's members it exports.
+  DesignPackagePrefix = 'designide';
+  DockableFormPrefix = '@Dockform@TDockableForm@';
 
 var
   // The host's own package release, read from HInstance once on first use.
   HostRelease: string;
   HostReleaseRead: Boolean = False;
 
-function RuntimeRelease(const AName: string): string;
+// The digits following APrefix in the file name of AName, without the
+// extension: '370' for designide370.bpl against 'designide'. Empty unless the
+// name is APrefix followed by digits only.
+function ReleaseDigits(const AName, APrefix: string): string;
 var
-  Base, Digits: string;
+  Base: string;
   Character: Char;
 begin
   Result := '';
   Base := LowerCase(ChangeFileExt(ExtractFileName(AName), ''));
-  if not (StartsStr('rtl', Base) or StartsStr('vcl', Base)) then
+  if not StartsStr(APrefix, Base) then
     Exit;
-  Digits := Copy(Base, 4, MaxInt);
-  if Digits = '' then
-    Exit;
-  for Character in Digits do
+  Result := Copy(Base, Length(APrefix) + 1, MaxInt);
+  for Character in Result do
     if not CharInSet(Character, ['0' .. '9']) then
-      Exit;
-  Result := Digits;
+      Exit('');
+end;
+
+function RuntimeRelease(const AName: string): string;
+begin
+  Result := ReleaseDigits(AName, 'rtl');
+  if Result = '' then
+    Result := ReleaseDigits(AName, 'vcl');
+end;
+
+function IsDesignPackage(const AName: string): Boolean;
+begin
+  Result := SameText(ExtractFileExt(AName), PackageExtension) and
+    (ReleaseDigits(AName, DesignPackagePrefix) <> '');
+end;
+
+function DerivesIdeWindow(const AImports: TArray<string>): Boolean;
+var
+  Import: string;
+begin
+  for Import in AImports do
+    if StartsText(DockableFormPrefix, Import) then
+      Exit(True);
+  Result := False;
 end;
 
 procedure ReadHostRequirement(const Name: string; NameType: TNameType;
@@ -152,6 +186,23 @@ begin
   end;
 end;
 
+function IdeWindowVerdict(const APath: string): TPreflight;
+var
+  Imported: string;
+begin
+  Result.Verdict := pvLoadable;
+  Result.Detail := '';
+  for Imported in ImportedModuleNames(APath) do
+    if IsDesignPackage(Imported) and
+      DerivesIdeWindow(ImportedNames(APath, Imported)) then
+    begin
+      Result.Verdict := pvIdeWindow;
+      Result.Detail := 'it derives a window from the IDE''s dockable form, ' +
+        'which only the IDE sets up';
+      Exit;
+    end;
+end;
+
 function InspectPackage(const APath: string;
   const AChosen: TArray<string>): TPreflight;
 var
@@ -187,6 +238,8 @@ begin
       Exit;
     end;
     Result := ReleaseVerdict(APath);
+    if Result.Verdict = pvLoadable then
+      Result := IdeWindowVerdict(APath);
   except
     on E: EPeImageError do
     begin

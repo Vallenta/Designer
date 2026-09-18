@@ -6,10 +6,10 @@
 
 unit Vallenta.FormEditor.Packages.PeImage;
 
-// Reads the PE image format: machine type and imported module names from a
-// file on disk, and the export table of a module already mapped in this
-// process. No shared state is held, so any function may be called from any
-// thread.
+// Reads the PE image format: machine type, imported module names and the
+// names imported from one module from a file on disk, and the export table
+// of a module already mapped in this process. No shared state is held, so
+// any function may be called from any thread.
 //
 // The mapped-module functions read the data directory at its PE32 offset and
 // are correct only in a 32-bit process. Returned addresses point into the
@@ -42,6 +42,13 @@ function ImageMachineType(const APath: string): Word;
 // PE image.
 function ImportedModuleNames(const APath: string): TArray<string>;
 
+// Names the image at APath imports from the module AModule, compared to the
+// import table's module names case-insensitively, in import-table order. An
+// import by ordinal carries no name and is omitted; an image that does not
+// import AModule yields an empty array. Raises EPeImageError when the file
+// is not a readable PE image.
+function ImportedNames(const APath, AModule: string): TArray<string>;
+
 // Export names of a module mapped in this process, in export-table order and
 // including forwarded exports. Empty when AModule is 0 or the module exports
 // nothing by name.
@@ -71,6 +78,7 @@ const
   DirectoryOffset64 = SizeOf(TImageOptionalHeader64) -
     IMAGE_NUMBEROF_DIRECTORY_ENTRIES * SizeOf(TImageDataDirectory);
   MaxImportedModules = 1024;
+  MaxImportedNames = 65536;
   MaxNameLength = 512;
 
 type
@@ -79,16 +87,24 @@ type
   private
     FStream: TFileStream;
     FMachine: Word;
+    // Import thunk width and its ordinal flag: 4 bytes and bit 31 for PE32,
+    // 8 bytes and bit 63 for PE32+.
+    FThunkSize: Integer;
+    FOrdinalFlag: UInt64;
     FSections: TArray<TImageSectionHeader>;
     FDirectories: TArray<TImageDataDirectory>;
     procedure ReadAt(AOffset: Int64; var ABuffer; ASize: Integer);
     function ReadNameAt(AOffset: Int64): string;
     procedure ReadHeaders;
     function FileOffsetOf(AAddress: Cardinal): Int64;
+    function ImportDescriptors: TArray<TImageImportDescriptor>;
+    function ImportedNamesOf(
+      const ADescriptor: TImageImportDescriptor): TArray<string>;
   public
     constructor Create(const APath: string);
     destructor Destroy; override;
     function ImportedModules: TArray<string>;
+    function ImportedNamesFrom(const AModule: string): TArray<string>;
     property Machine: Word read FMachine;
   end;
 
@@ -164,9 +180,17 @@ begin
   ReadAt(OptionalHeader, Magic, SizeOf(Magic));
   case Magic of
     OptionalHeaderMagic32:
+    begin
       DirectoryStart := OptionalHeader + DirectoryOffset32;
+      FThunkSize := SizeOf(Cardinal);
+      FOrdinalFlag := IMAGE_ORDINAL_FLAG32;
+    end;
     OptionalHeaderMagic64:
+    begin
       DirectoryStart := OptionalHeader + DirectoryOffset64;
+      FThunkSize := SizeOf(UInt64);
+      FOrdinalFlag := IMAGE_ORDINAL_FLAG64;
+    end;
   else
     raise EPeImageError.Create('its header is of a kind this does not read');
   end;
@@ -199,11 +223,11 @@ begin
   Result := -1;
 end;
 
-function TPeFile.ImportedModules: TArray<string>;
+function TPeFile.ImportDescriptors: TArray<TImageImportDescriptor>;
 var
   Directory: TImageDataDirectory;
   Descriptor: TImageImportDescriptor;
-  Offset, NameOffset: Int64;
+  Offset: Int64;
   Count: Integer;
 begin
   Result := [];
@@ -220,10 +244,70 @@ begin
     ReadAt(Offset, Descriptor, SizeOf(Descriptor));
     if Descriptor.Name = 0 then
       Break;
+    Result := Result + [Descriptor];
+    Inc(Offset, SizeOf(Descriptor));
+  end;
+end;
+
+function TPeFile.ImportedNamesOf(
+  const ADescriptor: TImageImportDescriptor): TArray<string>;
+var
+  Table: Cardinal;
+  Offset, NameOffset: Int64;
+  Thunk: UInt64;
+  Count: Integer;
+begin
+  Result := [];
+  // A bound image may carry no lookup table; its address table then still
+  // holds the names.
+  Table := ADescriptor.OriginalFirstThunk;
+  if Table = 0 then
+    Table := ADescriptor.FirstThunk;
+  Offset := FileOffsetOf(Table);
+  if Offset < 0 then
+    Exit;
+  for Count := 1 to MaxImportedNames do
+  begin
+    Thunk := 0;
+    ReadAt(Offset, Thunk, FThunkSize);
+    if Thunk = 0 then
+      Break;
+    if Thunk and FOrdinalFlag = 0 then
+    begin
+      // The entry points at a hint word followed by the name.
+      NameOffset := FileOffsetOf(Cardinal(Thunk));
+      if NameOffset >= 0 then
+        Result := Result + [ReadNameAt(NameOffset + SizeOf(Word))];
+    end;
+    Inc(Offset, FThunkSize);
+  end;
+end;
+
+function TPeFile.ImportedModules: TArray<string>;
+var
+  Descriptor: TImageImportDescriptor;
+  NameOffset: Int64;
+begin
+  Result := [];
+  for Descriptor in ImportDescriptors do
+  begin
     NameOffset := FileOffsetOf(Descriptor.Name);
     if NameOffset >= 0 then
       Result := Result + [ReadNameAt(NameOffset)];
-    Inc(Offset, SizeOf(Descriptor));
+  end;
+end;
+
+function TPeFile.ImportedNamesFrom(const AModule: string): TArray<string>;
+var
+  Descriptor: TImageImportDescriptor;
+  NameOffset: Int64;
+begin
+  Result := [];
+  for Descriptor in ImportDescriptors do
+  begin
+    NameOffset := FileOffsetOf(Descriptor.Name);
+    if (NameOffset >= 0) and SameText(ReadNameAt(NameOffset), AModule) then
+      Result := Result + ImportedNamesOf(Descriptor);
   end;
 end;
 
@@ -246,6 +330,18 @@ begin
   Image := TPeFile.Create(APath);
   try
     Result := Image.ImportedModules;
+  finally
+    Image.Free;
+  end;
+end;
+
+function ImportedNames(const APath, AModule: string): TArray<string>;
+var
+  Image: TPeFile;
+begin
+  Image := TPeFile.Create(APath);
+  try
+    Result := Image.ImportedNamesFrom(AModule);
   finally
     Image.Free;
   end;
