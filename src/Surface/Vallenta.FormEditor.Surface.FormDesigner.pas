@@ -40,6 +40,7 @@ uses
   Vallenta.FormEditor.Streaming.Preserved,
   Vallenta.FormEditor.Streaming.RootClassifier,
   Vallenta.FormEditor.Surface.Handles,
+  Vallenta.FormEditor.Surface.Guides,
   Vallenta.FormEditor.Surface.TileLayer,
   Vallenta.FormEditor.Surface.Undo;
 
@@ -48,6 +49,12 @@ type
   // counterpart once the cursor has moved DragThreshold pixels.
   TDragKind = (dkNone, dkPending, dkMove, dkResize, dkCreatePending, dkCreate,
     dkMarqueePending, dkMarquee);
+
+  // Inputs that show the alignment guides: Shift and Alt while held, and a
+  // keyboard nudge until the next mouse press on the surface or selection
+  // change.
+  TGuideKey = (gkShift, gkAlt, gkNudge);
+  TGuideKeys = set of TGuideKey;
 
   // Horizontal align action. ahLeft, ahCenters and ahRight measure against
   // the selection as a whole: the leftmost edge in it, its center, and the
@@ -172,6 +179,10 @@ type
     FDragRect: TRect;
     FDragParent: TWinControl;
     FDragFrame: TDragFrame;
+    FGuides: TGuideLines;
+    // Inputs currently arming the alignment guides. A bare Alt release is
+    // swallowed while gkAlt is in the set.
+    FGuideKeys: TGuideKeys;
     FResizeHandle: THandleKind;
     FArmedItem: TPaletteItem;
     FFrameWindowProc: TWndMethod;
@@ -220,6 +231,10 @@ type
       const Message: TMessage): Boolean;
     function RootControl: TWinControl;
     function BelongsToDocument(AControl: TControl): Boolean;
+    // True for a control the root owns and for a placeholder, which is
+    // ownerless but stands for file content; chrome windows are parented
+    // beside them and ownerless too.
+    function IsDesignedControl(AControl: TControl): Boolean;
     function DeepestDesignedAt(AFrom: TControl;
       const AScreen: TPoint): TControl;
     function ClickTarget(Sender: TControl): TComponent;
@@ -269,6 +284,27 @@ type
     procedure CommitDrag;
     procedure CancelDrag;
     procedure ShowDragFrame;
+    // Client origin of AParent in the root surface's client space.
+    function RootOrigin(AParent: TWinControl): TPoint;
+    // Bounds of AControl in the root surface's client space.
+    function RootSpaceBounds(AControl: TControl): TRect;
+    // Root-space bounds of every control of the document a guide is measured
+    // against: shown at design time, not the primary, not inside it, and with
+    // AExcludeMoving neither selected nor inside a selected control.
+    function NeighbourRects(AExcludeMoving: Boolean): TArray<TRect>;
+    // The primary while it is a designed control with a parent; nil for the
+    // root, a tile or a placeholder without a parent.
+    function PrimaryGuideControl: TControl;
+    function GuidePull(const ARect: TRect; AEdges: TGuideEdges): TGuidePull;
+    function SnapEdge(AValue: Integer; AOnGuide: Boolean;
+      AOffset: Integer): Integer;
+    procedure RefreshGuides;
+    procedure ArmGuides(AKey: TGuideKey);
+    procedure DisarmGuides(AKey: TGuideKey);
+    procedure DisarmAllGuides;
+    procedure RevalidateGuides;
+    function FocusLeavesSurface(AWindow: HWND): Boolean;
+    function GetGuideCount: Integer;
     procedure PaintFrameOn(DC: HDC);
     procedure PaintHostArea;
     function SnapEnabled: Boolean;
@@ -556,6 +592,8 @@ type
     property Log: TDesignLog read FLog;
     // Grid spacing in px.
     property GridSize: Integer read FGridSize;
+    // Number of alignment guide lines currently shown.
+    property GuideCount: Integer read GetGuideCount;
     // The primary selection; the root when nothing else is selected.
     property Selected: TComponent read FSelected;
     // Palette item armed for placement; nil outside creation mode.
@@ -658,6 +696,7 @@ const
   // Grid, gesture and clipboard defaults.
   DefaultGridSize = 8; // px
   DragThreshold = 3; // px of cursor travel before a pending drag becomes real
+  GuideSnapDistance = 4; // px between a dragged edge and a sibling edge that snap
   MinimumCreateSize = 8; // px
   MaxPasteOffsets = 32; // grid steps
   ClipboardAttempts = 10;
@@ -682,6 +721,11 @@ uses
   Vallenta.FormEditor.Packages.Host,
   Vallenta.FormEditor.Packages.Icons;
 
+const
+  // Pre-dispatch notification of WM_SYSKEYUP, built like CN_KEYUP; the VCL
+  // declares no name for it.
+  CN_SYSKEYUP = CN_BASE + WM_SYSKEYUP;
+
 { TFormDesigner }
 
 constructor TFormDesigner.Create(AHost: TCustomForm; ARoot: TComponent;
@@ -703,10 +747,12 @@ begin
   FIconProvider := IconProviderOver(TGenericGlyphProvider.Create);
   FHandles := THandleSet.Create(HandleDrag, PrimaryHandleColor);
   FDragFrame := TDragFrame.Create;
+  FGuides := TGuideLines.Create;
   // Chrome is parented into the host window, never into a designed container:
   // a container that manages its children (a TToolBar) would give it a slot.
   FHandles.Chrome := FForm;
   FDragFrame.Chrome := FForm;
+  FGuides.Chrome := FForm;
   if FForm <> nil then
     FTiles := TTileLayer.CreateLayer(FRoot, FIconProvider);
   if FRoot is TWinControl then
@@ -980,6 +1026,7 @@ begin
   FRootCanvas.Free;
   FTiles.Free;
   FDragFrame.Free;
+  FGuides.Free;
   FSecondaryHandles.Free;
   FSelection.Free;
   FHandles.Free;
@@ -1152,14 +1199,15 @@ begin
   FUndoStack.PushImage(Image, uoEditor, FSelected.Name);
 end;
 
-// Grab handles and drag frame are entries in their parent's tab list;
-// streaming before they are sunk writes TabOrder values that count them.
+// Grab handles, drag frame and guide lines are entries in their parent's tab
+// list; streaming before they are sunk writes TabOrder values that count them.
 procedure TFormDesigner.SinkChrome;
 var
   Handles: THandleSet;
 begin
   FHandles.SinkInTabOrder;
   FDragFrame.SinkInTabOrder;
+  FGuides.SinkInTabOrder;
   if FTiles <> nil then
     SinkBehindSiblings(FTiles);
   for Handles in FSecondaryHandles do
@@ -1652,6 +1700,7 @@ begin
       end;
     WM_MOUSEMOVE:
       begin
+        RevalidateGuides;
         ContinueDrag;
         Result := True;
       end;
@@ -1686,8 +1735,29 @@ begin
       end;
     CN_KEYDOWN, WM_KEYDOWN:
       Result := HandleKeyDown(TWMKey(Message).CharCode);
+    CN_KEYUP, WM_KEYUP:
+      if TWMKey(Message).CharCode = VK_SHIFT then
+        DisarmGuides(gkShift);
+    // A bare Alt press arms the guides and is swallowed down and up: the
+    // release would otherwise move the focus to the menu bar. Every other
+    // system key passes on, so Alt+F4 and the menu accelerators still work.
+    CN_SYSKEYDOWN, WM_SYSKEYDOWN:
+      if TWMKey(Message).CharCode = VK_MENU then
+      begin
+        ArmGuides(gkAlt);
+        Result := True;
+      end;
+    CN_SYSKEYUP, WM_SYSKEYUP:
+      if (TWMKey(Message).CharCode = VK_MENU) and (gkAlt in FGuideKeys) then
+      begin
+        DisarmGuides(gkAlt);
+        Result := True;
+      end;
     CN_CHAR, WM_CHAR:
       Result := True;
+    WM_KILLFOCUS:
+      if FocusLeavesSurface(TWMKillFocus(Message).FocusedWnd) then
+        DisarmAllGuides;
     WM_SIZE:
       if (Sender = FForm) and (TComponent(FForm) = FRoot) then
         NoteFormSize(TWMSize(Message).Width, TWMSize(Message).Height);
@@ -1785,6 +1855,7 @@ begin
     FDragFrame.Hide;
     FDragKind := dkNone;
   end;
+  RefreshGuides;
   GestureEnded;
   if Assigned(FOnCreationFinished) then
     FOnCreationFinished(Self);
@@ -1806,6 +1877,7 @@ var
 begin
   if (FDragKind <> dkNone) or (FArmedItem = nil) then
     Exit;
+  DisarmGuides(gkNudge);
   FocusSurface;
   if FArmedItem.IsNonVisual then
   begin
@@ -2039,6 +2111,11 @@ begin
   Result := Owner = FRoot;
 end;
 
+function TFormDesigner.IsDesignedControl(AControl: TControl): Boolean;
+begin
+  Result := (AControl.Owner = FRoot) or IsPlaceholder(AControl);
+end;
+
 function TFormDesigner.DeepestDesignedAt(AFrom: TControl;
   const AScreen: TPoint): TControl;
 var
@@ -2099,6 +2176,7 @@ var
 begin
   if FDragKind <> dkNone then
     Exit;
+  DisarmGuides(gkNudge);
   FocusSurface;
   Target := ClickTarget(Sender);
   if ssShift in KeyboardStateToShiftState then
@@ -2203,9 +2281,7 @@ begin
   for I := 0 to Root.ControlCount - 1 do
   begin
     Control := Root.Controls[I];
-    // Chrome controls are parented here but ownerless; placeholders are
-    // ownerless too, yet stand for real file content and stay selectable.
-    if ((Control.Owner = FRoot) or IsPlaceholder(Control)) and
+    if IsDesignedControl(Control) and
       FDragRect.IntersectsWith(Control.BoundsRect) then
       Hits := Hits + [Control];
   end;
@@ -2263,6 +2339,7 @@ begin
       CommitDrag;
   finally
     FDragKind := dkNone;
+    RefreshGuides;
     GestureEnded;
   end;
 end;
@@ -2275,7 +2352,12 @@ begin
   Shift := KeyboardStateToShiftState;
   case CharCode of
     VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN:
-      NudgeSelection(CharCode, Shift);
+      begin
+        NudgeSelection(CharCode, Shift);
+        ArmGuides(gkNudge);
+      end;
+    VK_SHIFT:
+      ArmGuides(gkShift);
     VK_ESCAPE:
       if FDragKind <> dkNone then
         CancelDrag
@@ -2979,6 +3061,8 @@ begin
   else
     FHandles.ShowFor(nil);
   UpdateSecondaryHandles;
+  Exclude(FGuideKeys, gkNudge);
+  RefreshGuides;
 end;
 
 // The sets are kept and re-targeted rather than rebuilt: a nudge calls this
@@ -3176,40 +3260,248 @@ begin
     Result := Value;
 end;
 
+const
+  // Edges each grab handle moves.
+  HandleEdges: array [THandleKind] of TGuideEdges = ([geLeft, geTop], [geTop],
+    [geRight, geTop], [geLeft], [geRight], [geLeft, geBottom], [geBottom],
+    [geRight, geBottom]);
+
+// A sibling edge within GuideSnapDistance of the unsnapped position wins over
+// the grid; the grid takes an axis with no such edge.
 function TFormDesigner.ComputeDragRect(const CursorPos: TPoint): TRect;
 var
   DX, DY: Integer;
+  Edges: TGuideEdges;
+  Pull: TGuidePull;
 begin
   DX := CursorPos.X - FDragAnchor.X;
   DY := CursorPos.Y - FDragAnchor.Y;
   Result := FDragOrigin;
   if FDragKind = dkMove then
   begin
+    Edges := AllGuideEdges;
     Result.Offset(DX, DY);
-    Result := TRect.Create(Point(Snap(Result.Left), Snap(Result.Top)),
-      FDragOrigin.Width, FDragOrigin.Height);
-  end
-  else
-  begin
-    if FResizeHandle in [hkTopLeft, hkLeft, hkBottomLeft] then
-      Result.Left := Snap(Result.Left + DX);
-    if FResizeHandle in [hkTopRight, hkRight, hkBottomRight] then
-      Result.Right := Snap(Result.Right + DX);
-    if FResizeHandle in [hkTopLeft, hkTop, hkTopRight] then
-      Result.Top := Snap(Result.Top + DY);
-    if FResizeHandle in [hkBottomLeft, hkBottom, hkBottomRight] then
-      Result.Bottom := Snap(Result.Bottom + DY);
-    if Result.Right <= Result.Left then
-      Result.Right := Result.Left + 1;
-    if Result.Bottom <= Result.Top then
-      Result.Bottom := Result.Top + 1;
+    Pull := GuidePull(Result, Edges);
+    Result := TRect.Create(Point(SnapEdge(Result.Left, Pull.OnX, Pull.DX),
+      SnapEdge(Result.Top, Pull.OnY, Pull.DY)), FDragOrigin.Width,
+      FDragOrigin.Height);
+    Exit;
   end;
+  Edges := HandleEdges[FResizeHandle];
+  if geLeft in Edges then
+    Inc(Result.Left, DX);
+  if geRight in Edges then
+    Inc(Result.Right, DX);
+  if geTop in Edges then
+    Inc(Result.Top, DY);
+  if geBottom in Edges then
+    Inc(Result.Bottom, DY);
+  Pull := GuidePull(Result, Edges);
+  if geLeft in Edges then
+    Result.Left := SnapEdge(Result.Left, Pull.OnX, Pull.DX);
+  if geRight in Edges then
+    Result.Right := SnapEdge(Result.Right, Pull.OnX, Pull.DX);
+  if geTop in Edges then
+    Result.Top := SnapEdge(Result.Top, Pull.OnY, Pull.DY);
+  if geBottom in Edges then
+    Result.Bottom := SnapEdge(Result.Bottom, Pull.OnY, Pull.DY);
+  if Result.Right <= Result.Left then
+    Result.Right := Result.Left + 1;
+  if Result.Bottom <= Result.Top then
+    Result.Bottom := Result.Top + 1;
 end;
 
 procedure TFormDesigner.ShowDragFrame;
 begin
   if FDragParent <> nil then
     FDragFrame.ShowRect(FDragParent, FDragRect);
+  RefreshGuides;
+end;
+
+{ alignment guides }
+
+function TFormDesigner.RootOrigin(AParent: TWinControl): TPoint;
+begin
+  if (AParent = nil) or (AParent = RootControl) then
+    Result := Point(0, 0)
+  else
+    Result := RootControl.ScreenToClient(AParent.ClientToScreen(Point(0, 0)));
+end;
+
+function TFormDesigner.RootSpaceBounds(AControl: TControl): TRect;
+var
+  Origin: TPoint;
+begin
+  Result := AControl.BoundsRect;
+  Origin := RootOrigin(AControl.Parent);
+  Result.Offset(Origin.X, Origin.Y);
+end;
+
+function TFormDesigner.NeighbourRects(AExcludeMoving: Boolean): TArray<TRect>;
+var
+  Rects: TArray<TRect>;
+
+  function Excluded(AControl: TControl): Boolean;
+  begin
+    Result := (TComponent(AControl) = FSelected) or
+      (AExcludeMoving and IsSelected(AControl));
+  end;
+
+  // An excluded control takes its children with it: they move with it, and
+  // its own edges are what is being measured. A control the designer does not
+  // show, one on an inactive page, takes its children with it as well.
+  procedure Collect(AParent: TWinControl);
+  var
+    I: Integer;
+    Control: TControl;
+  begin
+    for I := 0 to AParent.ControlCount - 1 do
+    begin
+      Control := AParent.Controls[I];
+      if not BelongsToDocument(Control) or Excluded(Control) or
+        (not Control.Visible and (csNoDesignVisible in Control.ControlStyle)) then
+        Continue;
+      Rects := Rects + [RootSpaceBounds(Control)];
+      if Control is TWinControl then
+        Collect(TWinControl(Control));
+    end;
+  end;
+
+begin
+  Rects := nil;
+  if RootControl <> nil then
+    Collect(RootControl);
+  Result := Rects;
+end;
+
+function TFormDesigner.PrimaryGuideControl: TControl;
+begin
+  Result := nil;
+  if (FSelected is TControl) and (FSelected <> FRoot) and
+    (TControl(FSelected).Parent <> nil) then
+    Result := TControl(FSelected);
+end;
+
+// Guide snapping is suspended while Alt is held, whatever the grid setting.
+function TFormDesigner.GuidePull(const ARect: TRect;
+  AEdges: TGuideEdges): TGuidePull;
+var
+  Origin: TPoint;
+  Target: TRect;
+begin
+  Result := Default(TGuidePull);
+  if (GetKeyState(VK_MENU) < 0) or not (FSelected is TControl) or
+    (FDragParent = nil) or (RootControl = nil) then
+    Exit;
+  Origin := RootOrigin(FDragParent);
+  Target := ARect;
+  Target.Offset(Origin.X, Origin.Y);
+  Result := PullToGuides(Target, NeighbourRects(FDragKind = dkMove), AEdges,
+    GuideSnapDistance);
+end;
+
+function TFormDesigner.SnapEdge(AValue: Integer; AOnGuide: Boolean;
+  AOffset: Integer): Integer;
+begin
+  if AOnGuide then
+    Result := AValue + AOffset
+  else
+    Result := Snap(AValue);
+end;
+
+// The one rule for what the guide lines show: the drag rectangle while a
+// move or resize runs, the primary's own bounds while a key arms them and no
+// other gesture runs (a press that has not become a drag counts as none),
+// and nothing otherwise. Everything is measured and drawn in the root
+// surface's client space, so a line reaches into any container.
+procedure TFormDesigner.RefreshGuides;
+var
+  Surface: TWinControl;
+  Primary: TControl;
+  Origin: TPoint;
+  Target: TRect;
+begin
+  Surface := RootControl;
+  if Surface = nil then
+  begin
+    FGuides.Hide;
+    Exit;
+  end;
+  if (FDragKind in [dkMove, dkResize]) and (FSelected is TControl) and
+    (FDragParent <> nil) then
+  begin
+    Origin := RootOrigin(FDragParent);
+    Target := FDragRect;
+    Target.Offset(Origin.X, Origin.Y);
+    FGuides.Show(Surface, AlignmentGuides(Target,
+      NeighbourRects(FDragKind = dkMove)));
+    Exit;
+  end;
+  Primary := PrimaryGuideControl;
+  if (FGuideKeys <> []) and (FDragKind in [dkNone, dkPending]) and
+    (Primary <> nil) then
+    FGuides.Show(Surface, AlignmentGuides(RootSpaceBounds(Primary),
+      NeighbourRects(False)))
+  else
+    FGuides.Hide;
+end;
+
+procedure TFormDesigner.ArmGuides(AKey: TGuideKey);
+begin
+  if AKey in FGuideKeys then
+    Exit;
+  Include(FGuideKeys, AKey);
+  RefreshGuides;
+end;
+
+procedure TFormDesigner.DisarmGuides(AKey: TGuideKey);
+begin
+  if not (AKey in FGuideKeys) then
+    Exit;
+  Exclude(FGuideKeys, AKey);
+  RefreshGuides;
+end;
+
+// True when AWindow, the window taking the focus, is neither the host nor
+// inside it. The host re-focuses itself while taking the focus, which
+// arrives as a focus loss to its own handle; the keys survive that.
+function TFormDesigner.FocusLeavesSurface(AWindow: HWND): Boolean;
+begin
+  Result := (FForm = nil) or not FForm.HandleAllocated or
+    ((AWindow <> FForm.Handle) and not IsChild(FForm.Handle, AWindow));
+end;
+
+procedure TFormDesigner.DisarmAllGuides;
+begin
+  if FGuideKeys = [] then
+    Exit;
+  FGuideKeys := [];
+  RefreshGuides;
+end;
+
+// A key released while the surface had no focus sends no release here; the
+// live key state is read instead, on every mouse move. A nudge has no key to
+// hold and is left alone.
+procedure TFormDesigner.RevalidateGuides;
+const
+  KeyCodes: array [gkShift .. gkAlt] of Integer = (VK_SHIFT, VK_MENU);
+var
+  Key: TGuideKey;
+  Held: TGuideKeys;
+begin
+  Held := FGuideKeys;
+  for Key := gkShift to gkAlt do
+    if (Key in FGuideKeys) and (GetKeyState(KeyCodes[Key]) >= 0) then
+      Exclude(Held, Key);
+  if Held = FGuideKeys then
+    Exit;
+  FGuideKeys := Held;
+  RefreshGuides;
+end;
+
+function TFormDesigner.GetGuideCount: Integer;
+begin
+  Result := FGuides.Count;
 end;
 
 procedure TFormDesigner.CommitDrag;
@@ -3267,6 +3559,7 @@ begin
     ReleaseCapture;
   FDragFrame.Hide;
   FDragKind := dkNone;
+  RefreshGuides;
   GestureEnded;
 end;
 
@@ -3301,6 +3594,7 @@ begin
   if TComponent(AControl) = FRoot then
     SyncFrameHost;
   FHandles.Update;
+  RefreshGuides;
   Modified;
   if Assigned(FOnGeometryChanged) then
     FOnGeometryChanged(Self);

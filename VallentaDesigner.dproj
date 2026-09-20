@@ -98,6 +98,7 @@
         <DCCReference Include="src\Core\Vallenta.FormEditor.Core.Recovery.pas"/>
         <DCCReference Include="src\Streaming\Vallenta.FormEditor.Streaming.EventNames.pas"/>
         <DCCReference Include="src\Surface\Vallenta.FormEditor.Surface.Handles.pas"/>
+        <DCCReference Include="src\Surface\Vallenta.FormEditor.Surface.Guides.pas"/>
         <DCCReference Include="src\Core\Vallenta.FormEditor.Core.ComponentRegistry.pas"/>
         <DCCReference Include="src\Packages\Vallenta.FormEditor.Packages.PeImage.pas"/>
         <DCCReference Include="src\Packages\Vallenta.FormEditor.Packages.Stacks.pas"/>

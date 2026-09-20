@@ -229,7 +229,8 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | Unit | Contents |
 |---|---|
 | `Surface.FormDesigner` | `TFormDesigner`: selection, input state machine, background painting, placement, dirty tracking, notifications, the save and close flow, z-order restacking, the read-only guard, the hosted designer the document holds, and the settled image. `WriteTo` writes the document to any path, which is what the journal writes through |
-| `Surface.Handles` | `THandleSet` and `TDragFrame`: grab handles and the drag frame. All are child windows with a nil `Owner`, and all are moved to the end of the tab list before the document is streamed |
+| `Surface.Handles` | `THandleSet`, `TDragFrame` and `TGuideLines`: grab handles, the drag frame and the alignment guide lines. All are child windows with a nil `Owner`, and all are moved to the end of the tab list before the document is streamed |
+| `Surface.Guides` | `AlignmentGuides` and `PullToGuides`: the segments joining a rectangle to the neighbours sharing one of its edges, and the offset that snaps an edge onto the nearest neighbour edge within reach. Pure functions over rectangles |
 | `Surface.Tiles` | The tiles that stand in for components without a window, and the dotted background they sit on. One set of routines paints both surfaces that show them |
 | `Surface.TileLayer` | `TTileLayer`, the window the tiles of a form or frame are drawn in, raised above the designed controls so that a control repainting itself cannot erase one |
 | `Surface.IconCanvas` | `TIconSurface`, the design surface for a data module |
@@ -273,7 +274,7 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | `Tests.Rename` | The designer's half of a rename end to end, including the class name that follows a root rename on the editor's answer |
 | `Tests.Orphan` | `EvaluateOrphan`: both clauses, arming, disarming, the deadline |
 | `Tests.Recovery` | Journal, discovery, recover, discard, and that a recovered document saves the bytes the ended session would have |
-| `Tests.SettledImage` | A change reported without warning becoming one step, ten becoming ten, the frame drag counting as a gesture, and the designer chrome staying out of what is written |
+| `Tests.SettledImage` | A change reported without warning becoming one step, ten becoming ten, the frame drag counting as a gesture, and the designer chrome, guide lines included, staying out of what is written |
 | `Tests.SourceFiles` | Which other form files a document is built from, and why each was read |
 | `Tests.Log` | The session log's ring buffer and the order a drop is reported in |
 | `Tests.Layout` | The layout store: what a next start reads back, the rescale across a DPI change, and what a damaged value or DPI is refused with |
@@ -284,6 +285,7 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | `Tests.LinkedModules` | A reference into another module: resolved through the class index over the document's directory and the search path, written back qualified, and left unchanged when no form file declares the module |
 | `Tests.ZOrder` | `RestackSelection` and `CanRestackSelection`: to front, to back, a group step, a step that moves nothing, a guarded document, the root, and undo and redo. Z-order is an index among siblings that no property records, so every case reads a saved file |
 | `Tests.Align` | `AlignSelection`, `SizeSelection` and the predicates: each action against the extent the selection spans and not against the control selected last, what an `Align` property and a foreign container make the command refuse, the aligned control as a fixed edge of the extent, a run that writes nothing, a guarded document, one undo step for the group, the same rule under a nudge, what each action demands of the selection, and that a new selection and the guard both say the commands changed |
+| `Tests.Guides` | The segments `AlignmentGuides` computes, the offsets `PullToGuides` reports, the keys that arm the guide lines through `IsDesignMsg`, and the edge of another control, in any container, a move drops on against the grid. Moves the system cursor, so an interactive desktop session is required |
 | `Tests.Tiles` | `IsNonVisual` and `TileAt`: which components of a root are drawn as tiles, and which tile a point hits |
 | `Tests.DesignHitTest` | Which messages `IsDesignMsg` consumes and which are left to the control, which component a click resolves to, the parent of the selection chrome, the load-time `Modified` report, and the read-only guard. Moves the system cursor, so an interactive desktop session is required |
 | `Tests.InspectorRows` | Which editing control a row offers: the pick list `paValueList` fills, and the ellipsis `paDialog` — or `paCustomDropDown` without `paValueList` — shows |
@@ -815,12 +817,14 @@ a document opens.
 | Input | Action |
 |---|---|
 | Click | Select what is under the mouse; the root's background selects the root |
-| Drag | Move, snapped to the grid, with a frame showing the result |
-| Drag a handle | Resize, snapped, minimum 1×1 |
-| Alt while dragging | Suspends snapping for that gesture |
+| Drag | Move, snapped to another control's edge within four pixels and else to the grid, with a frame and the guide lines showing the result |
+| Drag a handle | Resize, the dragged edge snapped the same way, minimum 1×1 |
+| Alt while dragging | Suspends grid and guide snapping for that gesture |
 | Arrow | Move by one grid step |
 | Ctrl+Arrow | Move by 1 px |
 | Shift+Arrow | Resize by 1 px |
+| Shift or Alt held | Alignment guides: a line along every edge the primary shares with another control on the form |
+| Arrow, Ctrl+Arrow | The alignment guides for the new position, kept until the next mouse press or selection change |
 | Esc | Select the parent; during a drag, cancel it |
 | Del | Delete the selection |
 | Ctrl+X / Ctrl+C / Ctrl+V | Cut, copy, paste |
@@ -841,7 +845,7 @@ no undo entry, the root is not a control to restack, and a guarded document
 refuses it like any other edit.
 
 Constants sit at the top of the units: grid `8`, drag threshold `3`, handle size
-`5`, frame thickness `2`, tile glyph `24`. Moving or resizing the designer window
+`5`, frame thickness `2`, guide thickness `1`, guide snap distance `4`, tile glyph `24`. Moving or resizing the designer window
 edits a form root's own bounds; the tracker compares the real window rectangle
 and marks the document dirty only when it actually changed, and only when the
 root *is* the window. Every applied edit goes through `ApplyBounds`, or
@@ -863,6 +867,45 @@ frame is therefore built from four thin child windows, like the handles.
 Keyboard input arrives as a pre-dispatch notification before it becomes a regular
 key message; the designer marks it handled, so it is consumed once and not
 twice.
+
+### Alignment Guides
+
+A one-pixel line in `GuideLineColor` runs along every edge the primary selection
+shares with another control of the document, in any container: the same `Left`,
+`Right`, `Top` or `Bottom`, measured in the root surface's client space, over
+every control shown at design time, placeholders and frame contents included,
+chrome and the primary's own children excluded. The line spans from the
+outermost top to the outermost bottom of the aligned set, or from the outermost
+left to the outermost right for a horizontal edge. `Surface.Guides` computes the segments and the snap offsets as pure
+functions over rectangles; `TGuideLines` in `Surface.Handles` draws them as
+pooled strip windows, parented into the chrome host like the drag frame and
+transparent to the hit test, so a click through a line reaches the control
+under it.
+
+**One rule decides what is shown** (`RefreshGuides`): the drag rectangle against
+the rest of the document while a move or resize is in flight, where the other
+members of a group and everything inside a moving control are left out because
+they travel with it; the primary's own bounds while Shift or Alt is held or a keyboard nudge was the last input, and no other gesture runs;
+and nothing otherwise, so a creation drag hides them until it ends. Every place
+that repositions the handles calls it, so a Shift+click that grows the
+selection and a Shift+Arrow resize keep the lines current, and the end of a
+drag brings the static lines back while a key is still held.
+
+**The keys are a set.** Shift arms through the ordinary key-down; Alt arrives as
+a system key, and only `VK_MENU` itself is taken. Every other system key passes
+on, so Alt+F4 and the menu accelerators are untouched. A bare Alt release is
+swallowed while Alt armed the guides, which keeps it from moving the focus to
+the menu bar; a release that armed nothing passes on as before. The set is
+cleared when the focus leaves the host, not when it moves inside it and not
+when the host re-focuses itself while taking the focus, and a mouse move drops
+any key whose live state reports it up, because the release of a key let go
+while the surface had no focus never arrives as a message. A keyboard nudge arms the set too, with no key to hold: the next mouse press on the surface or selection change clears it rather than a release, and the re-validation leaves it alone.
+
+**Snapping** lives in `ComputeDragRect` and nowhere else: an edge of another
+control within `GuideSnapDistance` (4 px) of the unsnapped position wins over
+the grid, per axis, and a resize measures only the edges the handle moves. Alt suspends both
+snaps; the lines still show where an edge coincides. A tile drag is not snapped
+to guides.
 
 ### Painting a Frame
 

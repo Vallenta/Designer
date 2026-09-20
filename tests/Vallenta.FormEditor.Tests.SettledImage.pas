@@ -48,6 +48,8 @@ type
     [Test]
     procedure AControlAddedWhileAGroupWearsHandlesKeepsItsOwnTabOrder;
     [Test]
+    procedure AControlAddedWhileTheGuidesAreUpKeepsItsOwnTabOrder;
+    [Test]
     procedure DraggingTheFramesBorderIsAGestureInFlight;
     [Test]
     procedure AChangeAfterAFrameDragIsStillRecorded;
@@ -56,6 +58,7 @@ type
 implementation
 
 uses
+  Winapi.Windows,
   Winapi.Messages,
   System.SysUtils,
   System.Classes,
@@ -542,6 +545,44 @@ begin
     Assert.AreEqual(ExpectedOrder, Integer(Added.TabOrder),
       'the control keeps a tab order that counts the handles of a second selection');
   finally
+    Session.Free;
+  end;
+end;
+
+// The same for the alignment guide lines, which are strip windows parented
+// into the host while Shift is held. Button1, Edit1 and Memo1 share their
+// left edge in the fixture, so the press shows one.
+procedure TSettledImageTests.AControlAddedWhileTheGuidesAreUpKeepsItsOwnTabOrder;
+const
+  ExpectedOrder = 3;
+var
+  Session: TDesignSession;
+  Hook: IDesignerHook;
+  KeyDown: TMessage;
+  Added: TButton;
+begin
+  BeginDesignerSession;
+  Session := TDesignSession.Create(FixtureFile(Fixture));
+  try
+    Session.Beat;
+    if not Supports(Session.Designer, IDesignerHook, Hook) then
+      raise Exception.Create('the designer answers no IDesignerHook');
+    KeyDown := Default(TMessage);
+    KeyDown.Msg := WM_KEYDOWN;
+    KeyDown.WParam := VK_SHIFT;
+    Hook.IsDesignMsg(TControl(Session.Designer.Root), KeyDown);
+    Assert.AreEqual(1, Session.Designer.GuideCount,
+      'the premise: a guide line is up while the control is added');
+    Added := TButton.Create(Session.Designer.Root);
+    Added.Name := 'AddedButton';
+    Added.Parent := TWinControl(Session.Designer.Root);
+    Session.WrittenFile;
+    Assert.AreEqual(ExpectedOrder, Integer(Added.TabOrder),
+      'the control keeps a tab order that counts the guide lines');
+  finally
+    // Cleared before the designer is freed: the interface is not reference
+    // counted, so its finalization would call _Release on a freed object.
+    Hook := nil;
     Session.Free;
   end;
 end;

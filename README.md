@@ -23,11 +23,13 @@ Delphi projects without leaving VS Code. Vallenta Designer provides its visual f
 ## What it does
 
 **Design surface.** Click to select, Shift+click to add and remove, and drag on the background
-for a marquee. A drag moves the selection snapped to the grid, with Alt suspending the snap for
-one gesture; the grab handles resize the primary selection. Arrow keys nudge by one grid step,
-Ctrl+arrow by one pixel and Shift+arrow resizes by one pixel. Esc selects the parent, Del
-deletes. Forms, frames and data modules are all designed in the same window; a data module gets
-an icon surface instead of a form.
+for a marquee. A drag moves the selection snapped to another control's edge within reach, else
+to the grid, with Alt suspending both snaps for one gesture; the grab handles resize the primary
+selection. Shift or Alt held shows a guide line along every edge the selection shares with any
+other control on the form, and the same lines follow a drag and a keyboard nudge. Arrow keys
+nudge by one grid step, Ctrl+arrow by one pixel and Shift+arrow resizes by one pixel. Esc selects
+the parent, Del deletes. Forms, frames and data modules are all designed in the same window; a
+data module gets an icon surface instead of a form.
 
 **Component palette.** One page per palette page the loaded packages register, each component
 carrying the icon its package ships. A search box filters the model, and a star marks a page or

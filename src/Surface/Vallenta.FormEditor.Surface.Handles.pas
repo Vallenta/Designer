@@ -6,11 +6,12 @@
 
 unit Vallenta.FormEditor.Surface.Handles;
 
-// Designer chrome: the eight grab handles around a selected control and the
-// four-strip rectangle used for drag feedback and the marquee. All are real
-// child windows with a nil Owner and never enter the streamed component tree;
-// overlay painting is erased when a control repaints itself, and the desktop
-// compositor discards direct screen output.
+// Designer chrome: the eight grab handles around a selected control, the
+// four-strip rectangle used for drag feedback and the marquee, and the
+// alignment guide lines. All are real child windows with a nil Owner and
+// never enter the streamed component tree; overlay painting is erased when a
+// control repaints itself, and the desktop compositor discards direct screen
+// output.
 //
 // The windows are parented to the window Chrome names, normally the
 // document's host window and not the designed container the target is a child
@@ -25,7 +26,9 @@ uses
   System.Classes,
   System.Types,
   System.UITypes,
-  Vcl.Controls;
+  System.Generics.Collections,
+  Vcl.Controls,
+  Vallenta.FormEditor.Surface.Guides;
 
 type
   // Position of a grab handle on the selection rectangle.
@@ -66,13 +69,19 @@ type
     property Kind: THandleKind read FKind;
   end;
 
-  // One edge of the rectangle a TDragFrame draws.
+  // One edge of the rectangle a TDragFrame draws, or one line of a
+  // TGuideLines. Answers the hit test as transparent, so the control under
+  // it still receives the click.
   TFrameStrip = class(TCustomControl)
+  private
+    FColor: TColor;
+    procedure WMNCHitTest(var Message: TWMNCHitTest); message WM_NCHITTEST;
   protected
     procedure Paint; override;
   public
-    // Creates the strip hidden and unparented, with a nil Owner.
-    constructor CreateStrip;
+    // Creates the strip hidden and unparented, with a nil Owner, filled
+    // with AColor.
+    constructor CreateStrip(AColor: TColor);
   end;
 
   // Rectangle outline drawn as four edge windows. Used as feedback during a
@@ -99,6 +108,35 @@ type
     procedure SinkInTabOrder;
     // Parent window for the strips, normally the document's host window.
     // Nil parents them to the AParent passed to ShowRect.
+    property Chrome: TWinControl read FChrome write FChrome;
+  end;
+
+  // Alignment guide lines drawn as strip windows of GuideThickness, one per
+  // segment. The strips are pooled and re-targeted rather than rebuilt.
+  TGuideLines = class
+  private
+    FStrips: TObjectList<TFrameStrip>;
+    FChrome: TWinControl;
+    FParent: TWinControl;
+    FClient: TRect;
+    FSegments: TArray<TGuideSegment>;
+    FShown: Integer;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    // Shows one strip per segment, given in AParent's client coordinates and
+    // clipped to AParent's client area. A repeat call with the same parent
+    // and segments does nothing; an empty array hides every strip.
+    procedure Show(AParent: TWinControl; const ASegments: TArray<TGuideSegment>);
+    // Hides and unparents every strip and clears the cached segments.
+    procedure Hide;
+    // Moves the strips to the end of their parent's tab list, so streaming
+    // does not count them in sibling TabOrder values.
+    procedure SinkInTabOrder;
+    // Number of segments currently shown.
+    property Count: Integer read FShown;
+    // Parent window for the strips, normally the document's host window.
+    // Nil parents them to the AParent passed to Show.
     property Chrome: TWinControl read FChrome write FChrome;
   end;
 
@@ -144,12 +182,15 @@ procedure SinkBehindSiblings(AWindow: TWinControl);
 const
   HandleSize = 5;
   FrameThickness = 2;
+  GuideThickness = 1;
 
-// Fill colors of the grab handles: the primary selection, and every other
-// member of a multi-selection.
+// Fill colors of the grab handles - the primary selection, and every other
+// member of a multi-selection - the drag frame, and the guide lines.
 const
   PrimaryHandleColor = TColors.Black;
   SecondaryHandleColor = TColors.Gray;
+  FrameColor = TColors.Black;
+  GuideLineColor = TColor($00D77800); // RGB 0, 120, 215
 
 implementation
 
@@ -227,18 +268,24 @@ end;
 
 { TFrameStrip }
 
-constructor TFrameStrip.CreateStrip;
+constructor TFrameStrip.CreateStrip(AColor: TColor);
 begin
   inherited Create(nil);
+  FColor := AColor;
   ControlStyle := ControlStyle + [csOpaque];
   Visible := False;
 end;
 
 procedure TFrameStrip.Paint;
 begin
-  Canvas.Brush.Color := clBlack;
+  Canvas.Brush.Color := FColor;
   Canvas.Brush.Style := bsSolid;
   Canvas.FillRect(ClientRect);
+end;
+
+procedure TFrameStrip.WMNCHitTest(var Message: TWMNCHitTest);
+begin
+  Message.Result := HTTRANSPARENT;
 end;
 
 { TDragFrame }
@@ -249,7 +296,7 @@ var
 begin
   inherited Create;
   for I := Low(FStrips) to High(FStrips) do
-    FStrips[I] := TFrameStrip.CreateStrip;
+    FStrips[I] := TFrameStrip.CreateStrip(FrameColor);
 end;
 
 destructor TDragFrame.Destroy;
@@ -327,6 +374,106 @@ var
   I: Integer;
 begin
   for I := Low(FStrips) to High(FStrips) do
+    SinkBehindSiblings(FStrips[I]);
+end;
+
+{ TGuideLines }
+
+constructor TGuideLines.Create;
+begin
+  inherited Create;
+  FStrips := TObjectList<TFrameStrip>.Create(True);
+end;
+
+destructor TGuideLines.Destroy;
+begin
+  FStrips.Free;
+  inherited Destroy;
+end;
+
+// The strip rectangle of ASegment, clipped to AClient; False when nothing of
+// it lies inside.
+function StripArea(const ASegment: TGuideSegment; const AClient: TRect;
+  out AArea: TRect): Boolean;
+begin
+  if ASegment.Axis = gaVertical then
+    AArea := TRect.Create(ASegment.Position, ASegment.Start,
+      ASegment.Position + GuideThickness, ASegment.Finish)
+  else
+    AArea := TRect.Create(ASegment.Start, ASegment.Position, ASegment.Finish,
+      ASegment.Position + GuideThickness);
+  AArea := TRect.Intersect(AArea, AClient);
+  Result := not AArea.IsEmpty;
+end;
+
+procedure TGuideLines.Show(AParent: TWinControl;
+  const ASegments: TArray<TGuideSegment>);
+var
+  I, Shown: Integer;
+  Home: TWinControl;
+  Origin: TPoint;
+  Client, Area: TRect;
+  Strip: TFrameStrip;
+begin
+  // The parent's client area clips the strips, so a parent resized under
+  // unchanged segments has to pass the repeat check as a change.
+  Client := AParent.ClientRect;
+  if (AParent = FParent) and (Client = FClient) and
+    SameGuides(ASegments, FSegments) then
+    Exit;
+  FParent := AParent;
+  FClient := Client;
+  FSegments := Copy(ASegments);
+  Home := FChrome;
+  if Home = nil then
+    Home := AParent;
+  if Home = AParent then
+    Origin := Point(0, 0)
+  else
+    Origin := Home.ScreenToClient(AParent.ClientToScreen(Point(0, 0)));
+  Shown := 0;
+  for I := 0 to High(ASegments) do
+  begin
+    if not StripArea(ASegments[I], Client, Area) then
+      Continue;
+    Area.Offset(Origin.X, Origin.Y);
+    if Shown = FStrips.Count then
+      FStrips.Add(TFrameStrip.CreateStrip(GuideLineColor));
+    Strip := FStrips[Shown];
+    Strip.SetBounds(Area.Left, Area.Top, Area.Width, Area.Height);
+    Strip.Parent := Home;
+    Strip.Visible := True;
+    Strip.BringToFront;
+    Inc(Shown);
+  end;
+  for I := Shown to FStrips.Count - 1 do
+  begin
+    FStrips[I].Visible := False;
+    FStrips[I].Parent := nil;
+  end;
+  FShown := Shown;
+end;
+
+procedure TGuideLines.Hide;
+var
+  I: Integer;
+begin
+  FParent := nil;
+  FClient := TRect.Empty;
+  FSegments := nil;
+  FShown := 0;
+  for I := 0 to FStrips.Count - 1 do
+  begin
+    FStrips[I].Visible := False;
+    FStrips[I].Parent := nil;
+  end;
+end;
+
+procedure TGuideLines.SinkInTabOrder;
+var
+  I: Integer;
+begin
+  for I := 0 to FStrips.Count - 1 do
     SinkBehindSiblings(FStrips[I]);
 end;
 

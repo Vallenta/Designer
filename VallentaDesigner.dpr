@@ -35,6 +35,7 @@ uses
   Vallenta.FormEditor.Core.Recovery in 'src\Core\Vallenta.FormEditor.Core.Recovery.pas',
   Vallenta.FormEditor.Streaming.EventNames in 'src\Streaming\Vallenta.FormEditor.Streaming.EventNames.pas',
   Vallenta.FormEditor.Surface.Handles in 'src\Surface\Vallenta.FormEditor.Surface.Handles.pas',
+  Vallenta.FormEditor.Surface.Guides in 'src\Surface\Vallenta.FormEditor.Surface.Guides.pas',
   Vallenta.FormEditor.Core.ComponentRegistry in 'src\Core\Vallenta.FormEditor.Core.ComponentRegistry.pas',
   Vallenta.FormEditor.Packages.PeImage in 'src\Packages\Vallenta.FormEditor.Packages.PeImage.pas',
   Vallenta.FormEditor.Packages.Stacks in 'src\Packages\Vallenta.FormEditor.Packages.Stacks.pas',

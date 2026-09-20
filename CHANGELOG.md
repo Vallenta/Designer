@@ -7,8 +7,10 @@ All notable changes to **Vallenta Designer** will be documented in this file. Ve
 
 ### Added
 - **Alignment bar** — a bar above the design surface opens a menu of the ten align actions, each carrying its own glyph.
+- **Design surface, alignment guides** — while Shift or Alt is held, during a drag and after a keyboard nudge, a line runs along every edge the selected component shares with another component on the form, in any container.
 
 ### Changed
+- **Design surface, drag** — a move or resize snaps to another component's edge within four pixels, in any container, before it snaps to the grid.
 - **Design surface, multiple selection** — every selected component wears grab handles, black on the component selected last and grey on the rest.
 - **Object inspector, multiple selection** — the component tree highlights every selected component, and a selection of several components can be built in it.
 - **Palette** — the Components and Favourites tabs are rebuilt together, and a tab keeps its expanded categories across a rebuild.

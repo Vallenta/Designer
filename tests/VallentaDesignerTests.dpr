@@ -50,7 +50,8 @@ uses
   Vallenta.FormEditor.Tests.ZOrder in 'Vallenta.FormEditor.Tests.ZOrder.pas',
   Vallenta.FormEditor.Tests.InspectorRows in 'Vallenta.FormEditor.Tests.InspectorRows.pas',
   Vallenta.FormEditor.Tests.Clipboard in 'Vallenta.FormEditor.Tests.Clipboard.pas',
-  Vallenta.FormEditor.Tests.Align in 'Vallenta.FormEditor.Tests.Align.pas';
+  Vallenta.FormEditor.Tests.Align in 'Vallenta.FormEditor.Tests.Align.pas',
+  Vallenta.FormEditor.Tests.Guides in 'Vallenta.FormEditor.Tests.Guides.pas';
 
 var
   Runner: ITestRunner;
