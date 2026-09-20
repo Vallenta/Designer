@@ -17,7 +17,8 @@ All notable changes to **Vallenta Designer** will be documented in this file. Ve
 - **Package loading, an exception the VCL handles itself** — such an exception is now written to the log with its stack instead of being shown in a message box.
 - **Align commands** — an align measures against the extent the selection spans, whatever order the selection was built in.
 - **Align and same size, a component whose `Align` property leaves its bounds to its parent** — the component keeps its bounds and the messages pane reports how many were left alone.
-- **VCL style** — loaded at startup from the `Styles` folder of the Delphi release the designer runs against instead of being linked into the executable: Windows Modern where the release ships it, otherwise Windows10.
+- **VCL style** — loaded at startup from the `Styles` folder of the Delphi release the designer runs against instead of being linked into the executable: Windows Modern where the release ships it, otherwise the system style.
+- **Packages, log of refused IDE services** — a request for the IDE theming service is reported by its interface name instead of its GUID.
 
 ### Fixed
 - **Design surface** — the form takes mouse input where it is displayed, also after a pane beside it is resized or the surface is scrolled.
@@ -25,6 +26,7 @@ All notable changes to **Vallenta Designer** will be documented in this file. Ve
 - **Palette** — a click on the header of a collapsed category expands it instead of arming one of the components the category hides.
 - **Packages, a design package exporting methods named `Register`** — a package's registration procedures are now identified by the mangled name of each unit it contains, and loading such a package no longer raises an access violation.
 - **Packages, EurekaLog installed in the IDE** — the EurekaLog packages are excluded from discovery, and starting the designer no longer shows the EurekaLog trial message box.
+- **Packages, an IDE expert carrying a dockable tool window** — a package that derives a window from the IDE's dockable form (Devart's DataSetManager, which its installer registers as a component package) is skipped before it is loaded and listed as `skipped (IDE tool window)` under Tools, Packages; loading it raised an access violation inside the IDE's design package and left a half-built window in the process.
 - **Design surface, a gesture that moves nothing** — the document stays unmodified and the history keeps no step for it.
 - **Building with Delphi 13.0** — the resource step no longer fails on `WindowsModern.vsf`, which ships only with Delphi 13.1 and later.
 

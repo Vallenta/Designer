@@ -46,6 +46,7 @@ uses
   Vallenta.FormEditor.Tests.DesignHitTest in 'Vallenta.FormEditor.Tests.DesignHitTest.pas',
   Vallenta.FormEditor.Tests.IdeServices in 'Vallenta.FormEditor.Tests.IdeServices.pas',
   Vallenta.FormEditor.Tests.RegisterExports in 'Vallenta.FormEditor.Tests.RegisterExports.pas',
+  Vallenta.FormEditor.Tests.ImportNames in 'Vallenta.FormEditor.Tests.ImportNames.pas',
   Vallenta.FormEditor.Tests.Diagnostics in 'Vallenta.FormEditor.Tests.Diagnostics.pas',
   Vallenta.FormEditor.Tests.ZOrder in 'Vallenta.FormEditor.Tests.ZOrder.pas',
   Vallenta.FormEditor.Tests.InspectorRows in 'Vallenta.FormEditor.Tests.InspectorRows.pas',

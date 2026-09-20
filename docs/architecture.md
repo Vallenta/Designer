@@ -103,11 +103,13 @@ The VCL style is not linked into the executable. `Windows Modern` ships only
 with Delphi 13.1 and later, and 13.0 reports the same `ProductVersion` and
 `CompilerVersion` as 13.1, so neither the props file nor `Core.Settings` can tell
 whether the release carries it; a linked `.vsf` the release lacks fails the
-resource step before the compiler runs. The program therefore loads the style at
-startup from the `Styles` folder of the release's shared documents directory,
-`$(BDSCOMMONDIR)`: `WindowsModern.vsf`, otherwise `Windows10.vsf`, and with
-neither present the system style remains active. The style file is thereby read
-from the same installation as the runtime packages that render it.
+resource step before the compiler runs. The program therefore loads
+`WindowsModern.vsf` at startup from the `Styles` folder of the release's shared
+documents directory, `$(BDSCOMMONDIR)`, and a release without the file keeps the
+system style. `Windows10.vsf`, which every release ships, is not used as a
+stand-in: its flat grey buttons and tabs are further from Windows Modern than the
+system style is on Windows 10 and 11. The style file is thereby read from the
+same installation as the runtime packages that render it.
 
 ## Directory Structure
 
@@ -207,10 +209,10 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 
 | Unit | Contents |
 |---|---|
-| `Packages.PeImage` | The PE image format: machine type and imported module names from a file, the export table from a module mapped in this process |
+| `Packages.PeImage` | The PE image format: machine type, imported module names and the names imported from one module from a file, the export table from a module mapped in this process |
 | `Packages.Stacks` | Names code addresses for a package failure diagnosed from a log rather than a debugger: the RTL stack-info hooks, and each address reported as its module, the offset into it and the exported symbol below it. Win32 only, and not thread-safe |
 | `Packages.Discovery` | The IDE's own package lists, its path variables resolved, and the default allow and exclusion lists |
-| `Packages.Preflight` | The checks that reject a package before it is loaded: missing, wrong architecture, another release, already in the process |
+| `Packages.Preflight` | The checks that reject a package before it is loaded: missing, wrong architecture, another release, an IDE tool window inside, already in the process |
 | `Packages.Dependencies` | What a package imports, resolved and loaded deepest first and released in reverse. A module already mapped is reported as part of the chain but neither loaded nor unloaded |
 | `Packages.Icons` | Component bitmaps read out of package files, exposed as an icon provider layered over the drawn-glyph one |
 | `Packages.Host` | Reading both package lists, deciding about each candidate, the registration hooks, loading, finding and calling `Register`, the verdict recorded for every package, and the ordered unload |
@@ -1776,9 +1778,18 @@ Loading is the point of no return, because a package's unit initialization runs
 inside this process the moment the loader is through with it, so what can be
 decided from the file is decided first: it exists, it is 32-bit (a 64-bit sibling
 of the same package is expected and is skipped with a line rather than an error),
-it is built against the same runtime release as this program, and it is not
-already in the process. Every verdict is a skip: the others still load, and a
+it is built against the same runtime release as this program, what it imports
+from `designide<n>.bpl` names no member of `Dockform.TDockableForm`, and it is
+not already in the process. Every verdict is a skip: the others still load, and a
 form using the skipped one degrades as it always does.
+
+The dockable-form check catches an IDE expert registered as a component package
+(Devart's DataSetManager is one). A window derived from `TDockableForm`
+subscribes at creation to `Deskform.evDesktopLoaded`, a global of the IDE's
+design package that only the IDE core creates, and such an expert creates its
+window in a unit initialization, so the load itself raises an access violation
+inside `designide<n>.bpl` and leaves a half-built window in the process. The
+verdict is read from the import table (`ImportedNames`) before anything runs.
 
 **A package's own dependencies come first** (`Packages.Dependencies`). What it
 imports is read out of its import table and loaded deepest first, searched for

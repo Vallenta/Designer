@@ -42,6 +42,7 @@ type
     psMissing,      // file not found
     psArchitecture, // not a 32-bit x86 image
     psRelease,      // built for another Delphi release
+    psIdeWindow,    // derives a window from the IDE's dockable form
     psDependency,   // a required package is missing
     psDuplicate,    // already loaded in this process
     psUnreadable,   // not a readable package file
@@ -70,7 +71,8 @@ const
   PackageStateCaptions: array [TPackageState] of string = (
     'loaded', 'loads on restart', 'held (allow list)', 'excluded', 'switched off',
     'discovery off', 'missing', 'skipped (64-bit)', 'skipped (other release)',
-    'missing dependency', 'already loaded', 'unreadable', 'failed');
+    'skipped (IDE tool window)', 'missing dependency', 'already loaded',
+    'unreadable', 'failed');
 
 // The command-line arguments, ParamStr(1)..ParamStr(ParamCount).
 function CommandLineArguments: TArray<string>;
@@ -1033,6 +1035,8 @@ begin
       Result := psArchitecture;
     pvRelease:
       Result := psRelease;
+    pvIdeWindow:
+      Result := psIdeWindow;
     pvDuplicate:
       Result := psDuplicate;
     pvUnreadable:
@@ -1052,7 +1056,7 @@ begin
     pvDuplicate:
       LogEntry(lsInfo, Format('%s skipped: %s',
         [ACandidate.Path, ACheck.Detail]));
-    pvArchitecture:
+    pvArchitecture, pvIdeWindow:
       LogEntry(lsInfo, Format('%s skipped: %s',
         [ACandidate.Path, ACheck.Detail]));
   else
