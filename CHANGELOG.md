@@ -3,7 +3,7 @@
 All notable changes to **Vallenta Designer** will be documented in this file. Versions follow the file version the executable reports in its version information.
 
 
-## [0.8.1] unreleased (put new entries here!)
+## [0.8.1] - 2026-09-20
 
 ### Added
 - **Alignment bar** — a bar above the design surface opens a menu of the ten align actions, each carrying its own glyph.
