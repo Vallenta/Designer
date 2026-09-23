@@ -54,6 +54,11 @@ glyph; an align measures against the extent the selection spans, so the result d
 the order things were selected in. A control whose `Align` property leaves its position to its
 parent is left where it is, and the messages pane says how many were.
 
+**Window style.** The list at the right end of the alignment bar switches the designer's own
+windows to any VCL style the Delphi release installs, dark styles included. The switch takes
+effect at once and is kept for the next start; the designed form keeps the plain Windows look
+under every style.
+
 **Files that are not plain forms.** A frame used inside a form is written as the difference from
 the frame's own file, and a form built on another form is written as the difference from its
 ancestor — both are read and written the way the IDE does it. A class no installed package

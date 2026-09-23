@@ -6,17 +6,15 @@
 
 unit Vallenta.FormEditor.Shell.AlignPalette;
 
-// Strip above the design surface holding one dropdown: a button that opens a
-// menu of the ten align actions, each with a glyph and a caption. The glyphs
-// are drawn from geometry into an image list rather than loaded from bitmaps,
-// so they stay sharp at any DPI and the program ships no artwork for them.
+// Strip above the design surface: a drawn button that opens a menu of the ten
+// align actions, each with a glyph drawn from geometry into an image list, and
+// at the right end the list of installed VCL styles. The button is drawn
+// rather than a TButton, which would take the keyboard focus off the design
+// surface and leave the arrow keys moving between controls.
 //
-// The button is drawn rather than being a TButton, which would take the
-// keyboard focus off the design surface and leave the arrow keys moving
-// between controls instead of nudging the selection.
-//
-// The strip holds no designer reference: a chosen entry raises OnAlign and the
-// owner runs the command. Main thread only, as for every VCL control.
+// The style list takes the focus while it is open and changes the selection
+// only there; OnStyleListClosed asks the owner to take the focus back. The
+// strip holds no designer reference. Main thread only.
 
 interface
 
@@ -27,12 +25,17 @@ uses
   Vcl.Controls,
   Vcl.Graphics,
   Vcl.Menus,
-  Vallenta.FormEditor.Surface.FormDesigner;
+  Vcl.StdCtrls,
+  Vallenta.FormEditor.Surface.FormDesigner,
+  Vallenta.FormEditor.Shell.Styles;
 
 const
   // Align actions the menu offers. The table in the implementation is
   // declared over this, so the two cannot drift apart.
   AlignActionCount = 10;
+
+  // Posted by the strip to itself once the style list has closed.
+  WM_STYLELISTCLOSED = WM_APP + 1;
 
 type
   // Raised when a menu entry is chosen. Exactly one of the two arguments
@@ -45,6 +48,10 @@ type
   TAlignQueryEvent = procedure(Sender: TObject; AHorizontal: TAlignHorizontal;
     AVertical: TAlignVertical; var AEnabled: Boolean) of object;
 
+  // Raised when the style list closes on a style other than the active one.
+  TStyleChosenEvent = procedure(Sender: TObject;
+    const AStyle: TDesignerStyle) of object;
+
   // Alignment bar above a design surface. Height is its own: the strip sizes
   // itself for the DPI it is parented at.
   TAlignPalette = class(TCustomControl)
@@ -55,18 +62,28 @@ type
     FItems: array [0 .. AlignActionCount - 1] of TMenuItem;
     FMenu: TPopupMenu;
     FImages: TImageList;
+    FStyleCombo: TComboBox;
     FOnAlign: TAlignActionEvent;
     FOnQueryAlign: TAlignQueryEvent;
+    FOnStyleChosen: TStyleChosenEvent;
+    FOnStyleListClosed: TNotifyEvent;
     function ButtonBounds: TRect;
     function AnyEnabled: Boolean;
+    function StyleColor(AColor: TColor): TColor;
     procedure BuildImages;
     procedure BuildMenu;
     procedure ItemClick(Sender: TObject);
     procedure DropMenu;
     procedure TrackHot(X, Y: Integer);
+    procedure PlaceStyleCombo;
+    procedure StyleListCloseUp(Sender: TObject);
     procedure CMMouseLeave(var Message: TMessage); message CM_MOUSELEAVE;
+    procedure CMStyleChanged(var Message: TMessage); message CM_STYLECHANGED;
+    procedure WMStyleListClosed(var Message: TMessage);
+      message WM_STYLELISTCLOSED;
   protected
     procedure Paint; override;
+    procedure Resize; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState;
       X, Y: Integer); override;
     procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
@@ -86,6 +103,15 @@ type
     property OnAlign: TAlignActionEvent read FOnAlign write FOnAlign;
     property OnQueryAlign: TAlignQueryEvent read FOnQueryAlign
       write FOnQueryAlign;
+    // Raised when the style list closes on a style other than the one the
+    // windows are drawn in. The list shows the active style again afterwards,
+    // so a style the handler could not apply is not left selected.
+    property OnStyleChosen: TStyleChosenEvent read FOnStyleChosen
+      write FOnStyleChosen;
+    // Raised each time the style list closes, after OnStyleChosen. The list
+    // holds the keyboard focus at that point.
+    property OnStyleListClosed: TNotifyEvent read FOnStyleListClosed
+      write FOnStyleListClosed;
   end;
 
 implementation
@@ -93,8 +119,10 @@ implementation
 uses
   Winapi.Windows,
   System.Math,
+  System.SysUtils,
   System.UITypes,
-  Vcl.Forms;
+  Vcl.Forms,
+  Vcl.Themes;
 
 type
   // One entry of the menu: the action it runs and the text it carries.
@@ -102,6 +130,26 @@ type
     Horizontal: TAlignHorizontal;
     Vertical: TAlignVertical;
     Caption: string;
+  end;
+
+  // Combo box of the installed styles, filled when its window is first
+  // created. While its list is closed it ignores the wheel and the keys that
+  // move the selection, so the selection changes only in the open list.
+  TStyleCombo = class(TComboBox)
+  private
+    FStyles: TArray<TDesignerStyle>;
+  protected
+    procedure CreateWnd; override;
+    function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer;
+      MousePos: TPoint): Boolean; override;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+    procedure KeyPress(var Key: Char); override;
+  public
+    // Selects the entry of the style the windows are drawn in; none when that
+    // style is not installed. Does nothing before the window exists.
+    procedure ShowActiveStyle;
+    // The selected entry; False when none is selected.
+    function Selected(out AStyle: TDesignerStyle): Boolean;
   end;
 
 const
@@ -132,9 +180,11 @@ const
   EntriesPerGroup = 5;
 
   ButtonCaption = 'Align';
+  StyleCaption = 'Style';
 
-  // Strip and button metrics in pixels at 96 DPI, scaled to the DPI the strip
-  // is shown at. The height below is what SetParent derives from them.
+  // Strip, button and style list metrics in pixels at 96 DPI, scaled to the
+  // DPI the strip is shown at. The height below is what SetParent derives
+  // from them.
   StripMargin = 4;
   ButtonHeight = 24;
   TextPadding = 10;
@@ -142,18 +192,21 @@ const
   ArrowHeight = 4;
   ArrowGap = 8;
   StripHeight = 2 * StripMargin + ButtonHeight + 1;
+  StyleComboWidth = 180;
+  StyleComboRows = 16;
 
   // Side of the square a glyph is drawn in, and the grid its parts are
   // measured on: every coordinate below is a unit of that grid.
   GlyphSize = 16;
   GlyphUnits = 16;
 
+  // System colors of the strip, mapped through the active style when drawn.
   BackColor = clBtnFace;
   BorderColor = clBtnShadow;
   HotColor = clBtnHighlight;
   PressedColor = clBtnShadow;
   FrameColor = clHighlight;
-  BarColor = clWindowText;
+  TextColor = clBtnText;
   GuideColor = clHighlight;
   DisabledColor = clGrayText;
 
@@ -273,6 +326,71 @@ begin
   end;
 end;
 
+{ TStyleCombo }
+
+procedure TStyleCombo.CreateWnd;
+var
+  Style: TDesignerStyle;
+begin
+  inherited CreateWnd;
+  // A recreated window gets its entries back from the inherited CreateWnd.
+  if Items.Count > 0 then
+    Exit;
+  FStyles := InstalledStyles;
+  for Style in FStyles do
+    Items.Add(Style.Name);
+  ShowActiveStyle;
+end;
+
+function TStyleCombo.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer;
+  MousePos: TPoint): Boolean;
+begin
+  Result := not DroppedDown or
+    inherited DoMouseWheel(Shift, WheelDelta, MousePos);
+end;
+
+procedure TStyleCombo.KeyDown(var Key: Word; Shift: TShiftState);
+begin
+  if not DroppedDown and not (ssAlt in Shift) and
+     (Key in [VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT, VK_PRIOR, VK_NEXT, VK_HOME,
+       VK_END]) then
+    Key := 0;
+  inherited KeyDown(Key, Shift);
+end;
+
+procedure TStyleCombo.KeyPress(var Key: Char);
+begin
+  if not DroppedDown then
+    Key := #0;
+  inherited KeyPress(Key);
+end;
+
+procedure TStyleCombo.ShowActiveStyle;
+var
+  Active: string;
+  I: Integer;
+begin
+  if not HandleAllocated then
+    Exit;
+  Active := ActiveStyleName;
+  for I := 0 to High(FStyles) do
+    if SameText(FStyles[I].Name, Active) then
+    begin
+      ItemIndex := I;
+      Exit;
+    end;
+  ItemIndex := -1;
+end;
+
+function TStyleCombo.Selected(out AStyle: TDesignerStyle): Boolean;
+begin
+  Result := (ItemIndex >= 0) and (ItemIndex <= High(FStyles));
+  if Result then
+    AStyle := FStyles[ItemIndex];
+end;
+
+{ TAlignPalette }
+
 constructor TAlignPalette.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
@@ -283,6 +401,13 @@ begin
   FImages := TImageList.Create(Self);
   FMenu := TPopupMenu.Create(Self);
   FMenu.Images := FImages;
+  FStyleCombo := TStyleCombo.Create(Self);
+  FStyleCombo.Parent := Self;
+  FStyleCombo.Style := csDropDownList;
+  FStyleCombo.TabStop := False;
+  FStyleCombo.DropDownCount := StyleComboRows;
+  FStyleCombo.Hint := 'Style of the designer windows';
+  FStyleCombo.OnCloseUp := StyleListCloseUp;
   BuildMenu;
   BuildImages;
   Height := StripHeight;
@@ -295,6 +420,7 @@ begin
     Exit;
   Height := ScaleValue(StripHeight);
   BuildImages;
+  PlaceStyleCombo;
 end;
 
 procedure TAlignPalette.ChangeScale(M, D: Integer; isDpiChange: Boolean);
@@ -302,6 +428,28 @@ begin
   inherited ChangeScale(M, D, isDpiChange);
   Height := ScaleValue(StripHeight);
   BuildImages;
+  PlaceStyleCombo;
+end;
+
+procedure TAlignPalette.Resize;
+begin
+  inherited Resize;
+  PlaceStyleCombo;
+end;
+
+procedure TAlignPalette.PlaceStyleCombo;
+var
+  ComboWidth: Integer;
+begin
+  ComboWidth := ScaleValue(StyleComboWidth);
+  FStyleCombo.SetBounds(ClientWidth - ScaleValue(StripMargin) - ComboWidth,
+    (ClientHeight - 1 - FStyleCombo.Height) div 2, ComboWidth,
+    FStyleCombo.Height);
+end;
+
+function TAlignPalette.StyleColor(AColor: TColor): TColor;
+begin
+  Result := StyleServices(Self).GetSystemColor(AColor);
 end;
 
 procedure TAlignPalette.BuildMenu;
@@ -332,7 +480,8 @@ begin
 end;
 
 // The image list is rebuilt rather than rescaled: a glyph drawn at the size it
-// is shown at has no resampling in it.
+// is shown at has no resampling in it. The bars take the menu text color of
+// the active style, so the glyphs read on the menu that shows them.
 procedure TAlignPalette.BuildImages;
 var
   Side, I: Integer;
@@ -340,8 +489,11 @@ var
   // has it in scope.
   Glyph: Vcl.Graphics.TBitmap;
   Box: TRect;
+  Bars, Guides: TColor;
 begin
   Side := ScaleValue(GlyphSize);
+  Bars := StyleServices(Self).GetStyleFontColor(sfPopupMenuItemTextNormal);
+  Guides := StyleColor(GuideColor);
   FImages.Clear;
   FImages.Width := Side;
   FImages.Height := Side;
@@ -354,7 +506,7 @@ begin
     begin
       Glyph.Canvas.Brush.Color := MaskColor;
       Glyph.Canvas.FillRect(Box);
-      DrawAlignGlyph(Glyph.Canvas, Box, I, BarColor, GuideColor);
+      DrawAlignGlyph(Glyph.Canvas, Box, I, Bars, Guides);
       FImages.AddMasked(Glyph, MaskColor);
     end;
   finally
@@ -417,10 +569,10 @@ var
   Live: Boolean;
   Text: string;
 begin
-  Canvas.Brush.Color := BackColor;
+  Canvas.Brush.Color := StyleColor(BackColor);
   Canvas.Brush.Style := bsSolid;
   Canvas.FillRect(ClientRect);
-  Canvas.Pen.Color := BorderColor;
+  Canvas.Pen.Color := StyleColor(BorderColor);
   Canvas.Pen.Style := psSolid;
   Canvas.MoveTo(0, Height - 1);
   Canvas.LineTo(Width, Height - 1);
@@ -428,24 +580,24 @@ begin
   Live := AnyEnabled;
   Button := ButtonBounds;
   if Live and FPressed then
-    Canvas.Brush.Color := PressedColor
+    Canvas.Brush.Color := StyleColor(PressedColor)
   else if Live and FHot then
-    Canvas.Brush.Color := HotColor
+    Canvas.Brush.Color := StyleColor(HotColor)
   else
-    Canvas.Brush.Color := BackColor;
+    Canvas.Brush.Color := StyleColor(BackColor);
   Canvas.FillRect(Button);
   if Live and (FHot or FPressed) then
-    Canvas.Brush.Color := FrameColor
+    Canvas.Brush.Color := StyleColor(FrameColor)
   else
-    Canvas.Brush.Color := BorderColor;
+    Canvas.Brush.Color := StyleColor(BorderColor);
   Canvas.FrameRect(Button);
 
   Canvas.Font := Font;
   Canvas.Brush.Style := bsClear;
   if Live then
-    Canvas.Font.Color := clBtnText
+    Canvas.Font.Color := StyleColor(TextColor)
   else
-    Canvas.Font.Color := DisabledColor;
+    Canvas.Font.Color := StyleColor(DisabledColor);
   Text := ButtonCaption;
   Canvas.TextOut(Button.Left + ScaleValue(TextPadding),
     Button.Top + (Button.Height - Canvas.TextHeight(Text)) div 2, Text);
@@ -456,13 +608,17 @@ begin
   Arrow.Width := ScaleValue(ArrowWidth);
   Arrow.Height := ScaleValue(ArrowHeight);
   Canvas.Brush.Style := bsSolid;
-  if Live then
-    Canvas.Brush.Color := clBtnText
-  else
-    Canvas.Brush.Color := DisabledColor;
+  Canvas.Brush.Color := Canvas.Font.Color;
   Canvas.Pen.Color := Canvas.Brush.Color;
   Canvas.Polygon([Arrow.TopLeft, Point(Arrow.Right, Arrow.Top),
     Point(Arrow.CenterPoint.X, Arrow.Bottom)]);
+
+  Canvas.Brush.Style := bsClear;
+  Canvas.Font.Color := StyleColor(TextColor);
+  Text := StyleCaption;
+  Canvas.TextOut(FStyleCombo.Left - ScaleValue(TextPadding) -
+    Canvas.TextWidth(Text),
+    (Height - 1 - Canvas.TextHeight(Text)) div 2, Text);
 end;
 
 procedure TAlignPalette.TrackHot(X, Y: Integer);
@@ -530,12 +686,41 @@ begin
     FOnAlign(Self, Entries[Index].Horizontal, Entries[Index].Vertical);
 end;
 
+// Posted rather than handled here: the list can report its new selection
+// after it reports closing.
+procedure TAlignPalette.StyleListCloseUp(Sender: TObject);
+begin
+  if HandleAllocated then
+    PostMessage(Handle, WM_STYLELISTCLOSED, 0, 0);
+end;
+
+procedure TAlignPalette.WMStyleListClosed(var Message: TMessage);
+var
+  Style: TDesignerStyle;
+begin
+  if TStyleCombo(FStyleCombo).Selected(Style) and
+     not SameText(Style.Name, ActiveStyleName) and Assigned(FOnStyleChosen) then
+    FOnStyleChosen(Self, Style);
+  TStyleCombo(FStyleCombo).ShowActiveStyle;
+  if Assigned(FOnStyleListClosed) then
+    FOnStyleListClosed(Self);
+end;
+
 procedure TAlignPalette.CMMouseLeave(var Message: TMessage);
 begin
   inherited;
   if not FHot then
     Exit;
   FHot := False;
+  Invalidate;
+end;
+
+procedure TAlignPalette.CMStyleChanged(var Message: TMessage);
+begin
+  inherited;
+  BuildImages;
+  TStyleCombo(FStyleCombo).ShowActiveStyle;
+  PlaceStyleCombo;
   Invalidate;
 end;
 

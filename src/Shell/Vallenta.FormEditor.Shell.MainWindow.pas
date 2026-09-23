@@ -43,6 +43,7 @@ uses
   Vallenta.FormEditor.Inspector.Frame,
   Vallenta.FormEditor.Shell.MessagesFrame,
   Vallenta.FormEditor.Shell.Layout,
+  Vallenta.FormEditor.Shell.Styles,
   Vallenta.FormEditor.Surface.Undo;
 
 const
@@ -50,6 +51,9 @@ const
   // must not run inside its own message handling.
   WM_PERFORMUNDO = WM_APP + 1;
   WM_PERFORMREDO = WM_APP + 2;
+  // Posted when this window has received a new style. It arrives after every
+  // window recreation the style change posted, the designed form's included.
+  WM_STYLESETTLED = WM_APP + 3;
 
   // FKeptVersion while the recovery journal holds no copy. Must differ from 0,
   // the version of an unchanged document, so that a recovered document does
@@ -184,6 +188,9 @@ type
     // True inside the modal move/size loop; RenewInputMapping is skipped per
     // step there and run once on exit.
     FInSizeMove: Boolean;
+    // True from a style chosen in this window until the change has settled;
+    // the window holds the keyboard focus itself meanwhile.
+    FRefocusAfterStyle: Boolean;
     // The window procedures displaced by SurfaceBoxWindowProc and
     // HostWindowProc; the host's is put back before the host is freed.
     FSurfaceBoxWindowProc: TWndMethod;
@@ -218,6 +225,10 @@ type
     procedure AlignPaletteQuery(Sender: TObject;
       AHorizontal: TAlignHorizontal; AVertical: TAlignVertical;
       var AEnabled: Boolean);
+    procedure AlignPaletteStyleChosen(Sender: TObject;
+      const AStyle: TDesignerStyle);
+    procedure AlignPaletteStyleListClosed(Sender: TObject);
+    procedure FocusDesignSurface;
     procedure DesignerCommandsChanged(Sender: TObject);
     procedure BuildDocument(ALoader: TFormLoader);
     procedure HoldPanesStill(AHold: Boolean);
@@ -243,6 +254,8 @@ type
     procedure WMExitSizeMove(var Message: TMessage); message WM_EXITSIZEMOVE;
     procedure WMWindowPosChanged(var Message: TWMWindowPosChanged);
       message WM_WINDOWPOSCHANGED;
+    procedure CMStyleChanged(var Message: TMessage); message CM_STYLECHANGED;
+    procedure WMStyleSettled(var Message: TMessage); message WM_STYLESETTLED;
     procedure RenewInputMapping;
     procedure SurfaceBoxWindowProc(var Message: TMessage);
     procedure HookHost;
@@ -256,6 +269,9 @@ type
     // Sets WndParent to 0 and adds WS_EX_APPWINDOW, giving each document its
     // own taskbar button. The main form is never shown
     procedure CreateParams(var Params: TCreateParams); override;
+    // Keeps the window placement across the recreation a style change makes:
+    // the new window of a maximized form starts without its normal bounds.
+    procedure WndProc(var Message: TMessage); override;
   public
     // ASessionLog is the process-wide log shown in the messages pane beside
     // this window's own; it is stored before the panes are built.
@@ -359,6 +375,7 @@ const
   MinTabsHeight = 120;
   // Lower bound for a pane itself, applied even when no room is left.
   MinPaneSize = 40;
+
 
 procedure TMainDesignerForm.CreateParams(var Params: TCreateParams);
 begin
@@ -574,6 +591,8 @@ begin
   FAlignPalette.Align := alTop;
   FAlignPalette.OnAlign := AlignPaletteAction;
   FAlignPalette.OnQueryAlign := AlignPaletteQuery;
+  FAlignPalette.OnStyleChosen := AlignPaletteStyleChosen;
+  FAlignPalette.OnStyleListClosed := AlignPaletteStyleListClosed;
 
   FPalette := TPaletteFrame.Create(Self);
   FPalette.Parent := PaletteZone;
@@ -1524,6 +1543,87 @@ procedure TMainDesignerForm.AlignPaletteQuery(Sender: TObject;
   var AEnabled: Boolean);
 begin
   AEnabled := (FDesigner <> nil) and FDesigner.CanAlign(AHorizontal, AVertical);
+end;
+
+procedure TMainDesignerForm.AlignPaletteStyleChosen(Sender: TObject;
+  const AStyle: TDesignerStyle);
+var
+  KeepError: string;
+begin
+  try
+    ChooseStyle(AStyle, KeepError);
+  except
+    on E: Exception do
+    begin
+      FSessionLog.AddFmt(lsError, 'the %s style could not be loaded from %s: %s',
+        [AStyle.Name, AStyle.FileName, E.Message]);
+      Exit;
+    end;
+  end;
+  FRefocusAfterStyle := True;
+  // A focused child is re-created under this window while it is destroyed and
+  // loses its content; the window holds the focus until the change settles.
+  Winapi.Windows.SetFocus(Handle);
+  FSessionLog.AddFmt(lsInfo, 'the designer windows are drawn in the %s style',
+    [AStyle.Name]);
+  if KeepError <> '' then
+    FSessionLog.AddFmt(lsWarn, 'the %s style is not kept for the next start: %s',
+      [AStyle.Name, KeepError]);
+end;
+
+procedure TMainDesignerForm.AlignPaletteStyleListClosed(Sender: TObject);
+begin
+  // After a style change the focus returns once every window was recreated.
+  if not FRefocusAfterStyle then
+    FocusDesignSurface;
+end;
+
+procedure TMainDesignerForm.FocusDesignSurface;
+begin
+  if FIconSurface <> nil then
+  begin
+    if FIconSurface.CanFocus then
+      FIconSurface.SetFocus;
+  end
+  else if FDesigner <> nil then
+    FDesigner.FocusSurface;
+end;
+
+procedure TMainDesignerForm.CMStyleChanged(var Message: TMessage);
+begin
+  inherited;
+  if HandleAllocated then
+    PostMessage(Handle, WM_STYLESETTLED, 0, 0);
+end;
+
+procedure TMainDesignerForm.WMStyleSettled(var Message: TMessage);
+begin
+  RenewInputMapping;
+  if not FRefocusAfterStyle then
+    Exit;
+  FRefocusAfterStyle := False;
+  // Every recreated document window was shown and activated again in turn.
+  SetForegroundWindow(Handle);
+  FocusDesignSurface;
+end;
+
+procedure TMainDesignerForm.WndProc(var Message: TMessage);
+var
+  Placement: TWindowPlacement;
+  Kept: Boolean;
+begin
+  Kept := False;
+  if (Message.Msg = CM_CUSTOMSTYLECHANGED) and HandleAllocated then
+  begin
+    Placement.length := SizeOf(Placement);
+    Kept := GetWindowPlacement(Handle, Placement);
+  end;
+  inherited WndProc(Message);
+  if not Kept or not HandleAllocated then
+    Exit;
+  // SW_SHOWNA leaves a maximized window maximized and activates nothing.
+  Placement.showCmd := SW_SHOWNA;
+  SetWindowPlacement(Handle, Placement);
 end;
 
 procedure TMainDesignerForm.PackagesActionExecute(Sender: TObject);

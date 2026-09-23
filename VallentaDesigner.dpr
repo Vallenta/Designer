@@ -63,6 +63,7 @@ uses
   Vallenta.FormEditor.Streaming.Clipboard in 'src\Streaming\Vallenta.FormEditor.Streaming.Clipboard.pas',
   Vallenta.FormEditor.Surface.Undo in 'src\Surface\Vallenta.FormEditor.Surface.Undo.pas',
   Vallenta.FormEditor.Surface.FormDesigner in 'src\Surface\Vallenta.FormEditor.Surface.FormDesigner.pas',
+  Vallenta.FormEditor.Shell.Styles in 'src\Shell\Vallenta.FormEditor.Shell.Styles.pas',
   Vallenta.FormEditor.Shell.AlignDialogs in 'src\Shell\Vallenta.FormEditor.Shell.AlignDialogs.pas',
   Vallenta.FormEditor.Shell.AlignPalette in 'src\Shell\Vallenta.FormEditor.Shell.AlignPalette.pas',
   Vallenta.FormEditor.Shell.Layout in 'src\Shell\Vallenta.FormEditor.Shell.Layout.pas',
@@ -75,26 +76,9 @@ uses
   Vallenta.FormEditor.Shell.MainWindow in 'src\Shell\Vallenta.FormEditor.Shell.MainWindow.pas' {MainDesignerForm},
   Vallenta.FormEditor.Shell.RecoveryDialog in 'src\Shell\Vallenta.FormEditor.Shell.RecoveryDialog.pas',
   Vallenta.FormEditor.Shell.SplashWindow in 'src\Shell\Vallenta.FormEditor.Shell.SplashWindow.pas' {SplashForm},
-  Vallenta.FormEditor.Shell.Core in 'src\Shell\Vallenta.FormEditor.Shell.Core.pas',
-  Vcl.Themes,
-  Vcl.Styles;
+  Vallenta.FormEditor.Shell.Core in 'src\Shell\Vallenta.FormEditor.Shell.Core.pas';
 
 {$R *.res}
-
-// Loads WindowsModern.vsf from the installed release instead of linking it: a
-// linked .vsf the release lacks fails the resource step. A release without the
-// file, before Delphi 13.1, keeps the system style.
-procedure ApplyDesignerStyle;
-var
-  Directory, Path: string;
-begin
-  Directory := IdeCommonDirectory;
-  if Directory = '' then
-    Exit;
-  Path := Directory + '\Styles\WindowsModern.vsf';
-  if FileExists(Path) and TStyleManager.IsValidStyle(Path) then
-    TStyleManager.SetStyle(TStyleManager.LoadFromFile(Path));
-end;
 
 procedure RunServe;
 var
@@ -102,7 +86,7 @@ var
 begin
   if not ClaimCore then
     Exit;
-  ApplyDesignerStyle;
+  ApplyStartupStyle;
   Application.Initialize;
   Application.MainFormOnTaskbar := True;
 
@@ -194,7 +178,7 @@ begin
     RunServe
   else
     try
-      ApplyDesignerStyle;
+      ApplyStartupStyle;
       Application.Initialize;
       Application.MainFormOnTaskbar := True;
       if Length(Arguments) > 0 then

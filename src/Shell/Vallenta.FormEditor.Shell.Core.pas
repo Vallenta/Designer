@@ -158,7 +158,8 @@ uses
   Vallenta.FormEditor.Streaming.RootClassifier,
   Vallenta.FormEditor.DesignTime.Environment,
   Vallenta.FormEditor.Core.Settings,
-  Vallenta.FormEditor.Packages.Host;
+  Vallenta.FormEditor.Packages.Host,
+  Vallenta.FormEditor.Shell.Styles;
 
 const
   // Settings sub-key, timer intervals and limits of the core; OfferDelay and
@@ -176,6 +177,10 @@ constructor TDesignerCore.Create(AOwner: TComponent);
 begin
   // CreateNew, not Create: this form has no DFM resource to load.
   inherited CreateNew(AOwner);
+  // Never shown, so a style has nothing to draw here. Without this a style
+  // change recreates this window, and destroying it destroys every document
+  // window, each being one of its popup children, without showing them again.
+  StyleElements := [];
   FSessionLog := TDesignLog.Create;
   FSessionLog.Limit := SessionLogLimit;
   FWindows := TList<TMainDesignerForm>.Create;
@@ -185,6 +190,7 @@ begin
   BuildTray;
   UseWindowBounds(FrontWindowBounds);
   ReportInto(FSessionLog);
+  ReportStartupStyle(FSessionLog);
   FSessionLog.AddFmt(lsInfo, 'the inspector reads its rows from %s',
     [IfThen(HostedEditors, 'the editors of the loaded packages',
      'type information')]);

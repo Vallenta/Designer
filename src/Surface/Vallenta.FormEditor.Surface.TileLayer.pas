@@ -42,6 +42,10 @@ type
     procedure RenderImage;
     procedure ApplyInkRegion;
   protected
+    // Cuts the window region again from the image Sync rendered last: a
+    // region belongs to the window, and a recreated window, as a style change
+    // makes one, starts without it.
+    procedure CreateWnd; override;
     // Draws the offscreen image the window region was cut from.
     procedure Paint; override;
     // Answers HTTRANSPARENT, so a mouse message over a tile reaches the
@@ -211,6 +215,13 @@ begin
   Visible := True;
   BringToFront;
   Invalidate;
+end;
+
+procedure TTileLayer.CreateWnd;
+begin
+  inherited CreateWnd;
+  if not FArea.IsEmpty then
+    ApplyInkRegion;
 end;
 
 procedure TTileLayer.Paint;

@@ -159,12 +159,18 @@ uses
   System.UITypes,
   Vcl.Forms,
   Vcl.Dialogs,
+  Vcl.Themes,
+  Vcl.GraphUtil,
   Vallenta.FormEditor.Core.Coupling;
 
 const
   // Name-column layout, in pixels.
   IndentStep = 12;
   ExpanderSize = 9;
+  // Share of the text color mixed into the background of the selected row. A
+  // tint rather than the button face, which dark styles give the background
+  // color itself.
+  SelectedTint = 0.1;
 
 constructor TPropertyGrid.Create(AOwner: TComponent);
 begin
@@ -262,24 +268,27 @@ var
   Text: string;
   TextLeft: Integer;
   Box: TRect;
+  Background, Foreground: TColor;
 begin
   Row := RowAt(ARow);
-  Canvas.Brush.Color := clWindow;
+  Background := StyleServices(Self).GetSystemColor(clWindow);
+  Foreground := StyleServices(Self).GetSystemColor(clWindowText);
+  Canvas.Brush.Color := Background;
   if (Row <> nil) and (gdSelected in AState) then
-    Canvas.Brush.Color := clBtnFace;
+    Canvas.Brush.Color := ColorBlendRGB(Background, Foreground, SelectedTint);
   Canvas.FillRect(ARect);
   if Row = nil then
     Exit;
 
-  Canvas.Font.Color := clWindowText;
+  Canvas.Font.Color := Foreground;
   if ACol = 0 then
   begin
     TextLeft := ARect.Left + 4 + Row.Level * IndentStep;
     if Row.Expandable then
     begin
       Box := ExpanderRect(ARect, Row);
-      Canvas.Brush.Color := clWindow;
-      Canvas.Pen.Color := clGrayText;
+      Canvas.Brush.Color := Background;
+      Canvas.Pen.Color := StyleServices(Self).GetSystemColor(clGrayText);
       Canvas.Rectangle(Box);
       Canvas.MoveTo(Box.Left + 2, Box.CenterPoint.Y);
       Canvas.LineTo(Box.Right - 2, Box.CenterPoint.Y);
@@ -298,11 +307,11 @@ begin
   begin
     Text := Row.ValueText;
     if not Row.CanEdit then
-      Canvas.Font.Color := clGrayText;
+      Canvas.Font.Color := StyleServices(Self).GetSystemColor(clGrayText);
     Canvas.Brush.Style := bsClear;
     Canvas.TextOut(ARect.Left + 4, ARect.Top + 2, Text);
     Canvas.Brush.Style := bsSolid;
-    Canvas.Font.Color := clWindowText;
+    Canvas.Font.Color := Foreground;
   end;
 end;
 

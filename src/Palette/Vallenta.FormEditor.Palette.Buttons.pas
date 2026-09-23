@@ -120,7 +120,9 @@ implementation
 
 uses
   Winapi.Windows,
-  System.Math;
+  System.Math,
+  Vcl.Themes,
+  Vcl.GraphUtil;
 
 const
   // Star geometry and colours; StarExtent and StarMargin are pixels.
@@ -132,9 +134,11 @@ const
   // BGR order, as in every TColor literal.
   StarFill = TColor($0000B9FF);
   StarEdge = TColor($000078B4);
-  StarDimmedFill = TColor($00A0C8D7);
-  StarDimmedEdge = TColor($008296A0);
-  StarOutlineEdge = TColor($00828282);
+  // Shares of the row background mixed into the star of a row marked through
+  // its page and into the text colour of a hover outline, so that both read
+  // on a light and on a dark style.
+  StarDimming = 0.45;
+  OutlineDimming = 0.5;
 
 constructor TPaletteButtons.Create(AOwner: TComponent);
 begin
@@ -183,9 +187,11 @@ var
   SavedPenStyle: TPenStyle;
   CentreX, CentreY, I: Integer;
   Outer, Radius, Angle: Double;
+  Background: TColor;
 begin
   if (AKind = fkNone) and not AHot then
     Exit;
+  Background := StyleServices(Self).GetSystemColor(clWindow);
 
   CentreX := (ABounds.Left + ABounds.Right) div 2;
   CentreY := (ABounds.Top + ABounds.Bottom) div 2;
@@ -217,12 +223,14 @@ begin
       fkByGroup:
         begin
           ACanvas.Brush.Style := bsSolid;
-          ACanvas.Brush.Color := StarDimmedFill;
-          ACanvas.Pen.Color := StarDimmedEdge;
+          ACanvas.Brush.Color := ColorBlendRGB(StarFill, Background, StarDimming);
+          ACanvas.Pen.Color := ColorBlendRGB(StarEdge, Background, StarDimming);
         end;
     else
       ACanvas.Brush.Style := bsClear;
-      ACanvas.Pen.Color := StarOutlineEdge;
+      ACanvas.Pen.Color := ColorBlendRGB(
+        StyleServices(Self).GetSystemColor(clWindowText), Background,
+        OutlineDimming);
     end;
     ACanvas.Polygon(Points);
   finally

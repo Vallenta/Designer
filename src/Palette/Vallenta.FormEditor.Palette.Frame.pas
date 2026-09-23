@@ -22,6 +22,7 @@ unit Vallenta.FormEditor.Palette.Frame;
 interface
 
 uses
+  Winapi.Messages,
   System.Classes,
   System.Types,
   System.UITypes,
@@ -115,6 +116,9 @@ type
       Canvas: TCanvas; Rect: TRect; State: TButtonDrawState;
       var TextOffset: Integer);
     procedure DesignerCreationFinished(Sender: TObject);
+    // A style change recreates the search box, whose new window shows the
+    // hint only while it has no focus.
+    procedure CMStyleChanged(var Message: TMessage); message CM_STYLECHANGED;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -136,7 +140,6 @@ implementation
 
 uses
   Winapi.Windows,
-  Winapi.Messages,
   Winapi.CommCtrl,
   System.SysUtils,
   Vallenta.FormEditor.Core.Settings,
@@ -244,6 +247,12 @@ begin
   if FSearch.HandleAllocated then
     SendMessage(FSearch.Handle, EM_SETCUEBANNER, 1,
       LPARAM(PChar(SearchHintText)));
+end;
+
+procedure TPaletteFrame.CMStyleChanged(var Message: TMessage);
+begin
+  inherited;
+  KeepSearchHintVisible;
 end;
 
 procedure TPaletteFrame.BuildViews;

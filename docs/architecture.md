@@ -103,13 +103,14 @@ The VCL style is not linked into the executable. `Windows Modern` ships only
 with Delphi 13.1 and later, and 13.0 reports the same `ProductVersion` and
 `CompilerVersion` as 13.1, so neither the props file nor `Core.Settings` can tell
 whether the release carries it; a linked `.vsf` the release lacks fails the
-resource step before the compiler runs. The program therefore loads
-`WindowsModern.vsf` at startup from the `Styles` folder of the release's shared
-documents directory, `$(BDSCOMMONDIR)`, and a release without the file keeps the
-system style. `Windows10.vsf`, which every release ships, is not used as a
-stand-in: its flat grey buttons and tabs are further from Windows Modern than the
-system style is on Windows 10 and 11. The style file is thereby read from the
-same installation as the runtime packages that render it.
+resource step before the compiler runs. The program therefore loads its style at
+startup from the `Styles` folder of the release's shared documents directory,
+`$(BDSCOMMONDIR)`: the style chosen for this release in the alignment bar (see
+Window Style), and with none chosen `WindowsModern.vsf`, or the system style on a
+release without that file. `Windows10.vsf`, which every release ships, is not
+used as a stand-in default: its flat grey buttons and tabs are further from
+Windows Modern than the system style is on Windows 10 and 11. The style file is
+thereby read from the same installation as the runtime packages that render it.
 
 ## Directory Structure
 
@@ -259,7 +260,8 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | `Shell.MessagesFrame` + `.dfm` | The severity-colored message list over two logs: the session log first and marked as such, then this document's, so a window opened later still shows what the packages reported at startup |
 | `Shell.RecoveryDialog` | The documents an earlier session left unsaved, offered one row at a time. Built in code, and the one dialog here that is not OK/Cancel |
 | `Shell.AlignDialogs` | The align, same-size, tab-order and creation-order dialogs, built in code rather than from form resources |
-| `Shell.AlignPalette` | `TAlignPalette`, the alignment bar above the design surface: one drawn button opening a menu of the ten align actions, each entry carrying a glyph and a caption. The glyphs are drawn from geometry into an image list rather than loaded from bitmaps, so they stay sharp at any DPI and the program ships no artwork for them. The button is drawn rather than being a `TButton`, which would take the keyboard focus off the design surface. The strip holds no designer reference; a chosen entry raises `OnAlign` and the window runs the command |
+| `Shell.AlignPalette` | `TAlignPalette`, the alignment bar above the design surface: one drawn button opening a menu of the ten align actions, each entry carrying a glyph and a caption, and at its right end a combo box of the installed VCL styles. The glyphs are drawn from geometry into an image list rather than loaded from bitmaps, so they stay sharp at any DPI and the program ships no artwork for them. The button is drawn rather than being a `TButton`, which would take the keyboard focus off the design surface; the combo box changes the style only through its open list and hands the focus back when the list closes. The strip holds no designer reference; a chosen entry raises `OnAlign`, a chosen style `OnStyleChosen`, and the window carries out both |
+| `Shell.Styles` | The VCL style of the designer's own windows: the styles the release installs, the choice kept for the release, the switch between them, and the style applied at startup, whose warnings reach the session log once the core exists |
 | `Shell.Layout` | `TLayoutStore` and `TDialogLayoutStore`: pane sizes, window size and resizable dialog geometry, as registry values under one key of this release. Sizes record the DPI they were measured at and are rescaled to the DPI they are read for |
 | `Shell.SplashWindow` + `.dfm` | `TSplashForm`, the start-up window: backdrop and mark as pictures the form resource carries, status line and progress bar as controls over them. Shown only by a start that becomes the core, driven from the `.dpr` and from the package load's progress, and closed before the message loop |
 
@@ -280,6 +282,7 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | `Tests.SourceFiles` | Which other form files a document is built from, and why each was read |
 | `Tests.Log` | The session log's ring buffer and the order a drop is reported in |
 | `Tests.Layout` | The layout store: what a next start reads back, the rescale across a DPI change, and what a damaged value or DPI is refused with |
+| `Tests.Styles` | The styles a directory offers — the system style first, then name order, with a file that holds no style or repeats a name left out — the choice the store keeps, and a style change under an open document in a shown window: every window recreated, the designed controls still in the system style, and the document unmodified and saving the bytes it was opened from |
 | `Tests.Clipboard` | Copy, cut and paste: the fragment a selection writes, the names a paste counts up, the references that follow a rename and the ones that do not, the handler rule and its refusal on an uncoupled document, and a block split over collections, strings and binary data |
 | `Tests.ArgumentFile` | `ExpandConfigFileArgument`: one argument per non-empty line, file arguments appended after those already present, the option and any nested one removed, and how an unreadable file is reported |
 | `Tests.SearchPath` | `SplitSearchPath`, `TakeSearchPathArgument`, the per-document override, an ancestor chain resolved through it, and `DfmFileRootHeader` on a binary resource `.dfm` and on ANSI text bytes |
@@ -390,6 +393,7 @@ Nothing here writes the IDE's own keys.
 | `Packages` | `Configured` and `Disabled` subkeys naming package paths, and the `Discovery`, `AllowList`, `Exclude` and `HostedEditors` values |
 | `Palette` | `FavouriteGroups` and `FavouriteItems` subkeys, one value name per favourite page or class |
 | `Layout` | Pane widths and heights, window size and maximized state, and the `PPI` they were measured at |
+| `Appearance` | `Style` — the file name of the chosen style, without a directory, or an empty string for the system style. Absent until a style is chosen |
 | `PackagesDialog` | Size and column widths of the package manager dialog |
 | `Recovery` | `IntervalSeconds` — seconds between recovery copies. 30 when unset, 0 disables the journal, any other value is raised to at least 5 |
 
@@ -1013,6 +1017,50 @@ dragging or nudging a control its parent positions — or one `Constraints` hold
 The batch commands write bounds directly rather than through `ApplyBounds`, and
 mark the document dirty and refresh the handles once at the end: one gesture, one
 undo entry, one notification.
+
+## Window Style (`Shell.Styles`)
+
+The designer's own windows are drawn in one VCL style for the whole process,
+chosen in the combo box at the right end of the alignment bar. It lists the
+system style and every `.vsf` file in the `Styles` folder of the release, by the
+name each file declares. The choice is kept for the release and applied again at
+the next start; a kept file the release no longer installs produces a warning in
+the messages pane, and the default applies instead.
+
+**A designed document keeps the system look under every style.** The VCL draws a
+control in design mode with a separate designing style, and this program never
+sets one, so a style reaches the designer's own windows and none of the designed
+controls. Chrome the designer places on a designed form — the tile layer, the
+placeholders, the read-only banner — sets `StyleElements := []` for the same
+reason. Colors the designer paints itself, in the messages pane, the inspector
+grid, the alignment bar and the palette stars, are taken from the active style
+through `StyleServices`, so they follow a dark style as the standard controls do.
+
+**A switch takes effect at once and recreates every window.** `TStyleManager.SetStyle`
+posts every shown form a message that has it destroy and recreate its window
+handle, and the handles of all its children with it, the designed form included.
+VCL state survives that; state held by a window handle does not, and is put back:
+
+- the tile layer cuts its window region again in `CreateWnd`;
+- the palette sends the search box's cue banner again on `CM_STYLECHANGED`;
+- a document window puts its window placement back after the recreation, since
+  the new window of a maximized form starts without its normal bounds;
+- the window the combo box was used in holds the keyboard focus itself from
+  the switch until every recreation has run. While a window is destroyed, the
+  VCL answers a focus message by walking from the control it last focused up to
+  the form and reading each handle on the way, which creates those controls
+  again inside the window being destroyed; that window then destroys them
+  without the controls saving what their windows held, and the messages pane
+  came back empty that way;
+- every document window posts itself a message on `CM_STYLECHANGED`, which
+  arrives after every recreation the switch posted; there the window the combo
+  box was used in takes the activation and the keyboard focus back, since each
+  recreated document window is shown and activated again in turn.
+
+**The core is kept out of the style.** `TDesignerCore` sets `StyleElements := []`.
+Being hidden, it receives the style change synchronously, and its recreation
+would destroy every document window with it, each being one of its popup
+children, without showing any of them again.
 
 ## Icon Tiles (`Surface.Tiles`, `Surface.TileLayer`)
 
@@ -2393,6 +2441,15 @@ stage is exercised deliberately.
   one explaining a chrome detach that had become a sink, one describing a journal
   contract a fix had already replaced, and one justifying a `MarkKept` that no
   longer behaved that way.
+- **No control of a document window may hold the focus while the window is
+  recreated.** A style change recreates the window; a control focused at that
+  moment is created again inside the window being destroyed, by the VCL's own
+  focus handling, and loses what its window held, list items and text among
+  it. The window takes the focus itself for the switch. See Window Style.
+- **The core form stays out of the VCL style.** Removing `StyleElements := []`
+  from `TDesignerCore` compiles and makes every document window disappear at the
+  first style change: the hidden core is recreated synchronously and takes its
+  popup children with it. See Window Style.
 - **Debug tracing is temporary.** Trace calls added while diagnosing are removed
   before the change is finished. Two constraints apply while they exist: a
   `Format` argument is evaluated before the callee's `if FLog <> nil` guard can

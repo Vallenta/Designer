@@ -238,7 +238,6 @@ type
     function DeepestDesignedAt(AFrom: TControl;
       const AScreen: TPoint): TControl;
     function ClickTarget(Sender: TControl): TComponent;
-    procedure FocusSurface;
     procedure BeginMoveDrag(Sender: TControl);
     procedure BeginCreateDrag(Sender: TControl);
     procedure ContinueCreateDrag;
@@ -542,6 +541,9 @@ type
     // Called once the document is on screen. From here on a Modified report
     // counts as an edit, and the first settled image is queued.
     procedure BeginEditing;
+    // Moves the keyboard focus onto the hook host, the only place arrows, Del
+    // and Esc reach the designer from. Does nothing for a data module.
+    procedure FocusSurface;
     // Guards the document read-only: gestures, the palette, the inspector
     // and Save are refused until the guard is lifted. Viewing and selection
     // are still allowed.
@@ -1863,9 +1865,6 @@ end;
 
 procedure TFormDesigner.FocusSurface;
 begin
-  // Keyboard messages reach IsDesignMsg only through a focused design-mode
-  // control; without focus on the hook host, arrows, Del and Esc go to the
-  // shell.
   if (FForm <> nil) and FForm.HandleAllocated and not FForm.Focused then
     Winapi.Windows.SetFocus(FForm.Handle);
 end;

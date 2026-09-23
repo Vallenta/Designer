@@ -65,14 +65,28 @@ implementation
 uses
   Winapi.Windows,
   Vcl.Graphics,
+  Vcl.Themes,
   Vcl.Clipbrd;
 
 const
-  // Row text colors by severity, and the item-data flag marking a session row.
-  SeverityColor: array [TLogSeverity] of TColor = (clWindowText, clOlive, clRed);
-  // The severity occupies the low two bits of the item data, so TLogSeverity
-  // must stay at four values or fewer.
+  // Row text colors by severity, indexed first by whether the list background
+  // is dark. System colors among them are mapped through the active style.
+  SeverityColor: array [Boolean, TLogSeverity] of TColor = (
+    (clWindowText, clOlive, clRed),
+    (clWindowText, TColor($003CC0E8), TColor($006B6BFF)));
+  // Item-data flag marking a session row. The severity occupies the low two
+  // bits of the item data, so TLogSeverity must stay at four values or fewer.
   SessionMark = 4;
+
+// True when AColor is nearer black than white in perceived brightness.
+function IsDark(AColor: TColor): Boolean;
+var
+  Value: TColorRef;
+begin
+  Value := TColorRef(ColorToRGB(AColor));
+  Result := GetRValue(Value) * 299 + GetGValue(Value) * 587 +
+    GetBValue(Value) * 114 < 128000;
+end;
 
 destructor TMessagesFrame.Destroy;
 begin
@@ -161,16 +175,19 @@ procedure TMessagesFrame.LogListDrawItem(Control: TWinControl; Index: Integer;
 var
   Marked: NativeInt;
   Severity: TLogSeverity;
+  Style: TCustomStyleServices;
 begin
   Marked := NativeInt(LogList.Items.Objects[Index]);
   Severity := TLogSeverity(Marked and not SessionMark);
+  Style := StyleServices(LogList);
   LogList.Canvas.FillRect(Rect);
   if odSelected in State then
-    LogList.Canvas.Font.Color := clHighlightText
+    LogList.Canvas.Font.Color := Style.GetSystemColor(clHighlightText)
   else if (Marked and SessionMark <> 0) and (Severity = lsInfo) then
-    LogList.Canvas.Font.Color := clGrayText
+    LogList.Canvas.Font.Color := Style.GetSystemColor(clGrayText)
   else
-    LogList.Canvas.Font.Color := SeverityColor[Severity];
+    LogList.Canvas.Font.Color := Style.GetSystemColor(
+      SeverityColor[IsDark(Style.GetSystemColor(clWindow)), Severity]);
   LogList.Canvas.TextOut(Rect.Left + 4, Rect.Top + 1, LogList.Items[Index]);
 end;
 

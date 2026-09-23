@@ -139,6 +139,7 @@
         <DCCReference Include="src\Streaming\Vallenta.FormEditor.Streaming.Clipboard.pas"/>
         <DCCReference Include="src\Surface\Vallenta.FormEditor.Surface.Undo.pas"/>
         <DCCReference Include="src\Surface\Vallenta.FormEditor.Surface.FormDesigner.pas"/>
+        <DCCReference Include="src\Shell\Vallenta.FormEditor.Shell.Styles.pas"/>
         <DCCReference Include="src\Shell\Vallenta.FormEditor.Shell.AlignDialogs.pas"/>
         <DCCReference Include="src\Shell\Vallenta.FormEditor.Shell.AlignPalette.pas"/>
         <DCCReference Include="src\Shell\Vallenta.FormEditor.Shell.Layout.pas"/>

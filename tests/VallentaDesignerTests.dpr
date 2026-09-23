@@ -52,7 +52,8 @@ uses
   Vallenta.FormEditor.Tests.InspectorRows in 'Vallenta.FormEditor.Tests.InspectorRows.pas',
   Vallenta.FormEditor.Tests.Clipboard in 'Vallenta.FormEditor.Tests.Clipboard.pas',
   Vallenta.FormEditor.Tests.Align in 'Vallenta.FormEditor.Tests.Align.pas',
-  Vallenta.FormEditor.Tests.Guides in 'Vallenta.FormEditor.Tests.Guides.pas';
+  Vallenta.FormEditor.Tests.Guides in 'Vallenta.FormEditor.Tests.Guides.pas',
+  Vallenta.FormEditor.Tests.Styles in 'Vallenta.FormEditor.Tests.Styles.pas';
 
 var
   Runner: ITestRunner;
