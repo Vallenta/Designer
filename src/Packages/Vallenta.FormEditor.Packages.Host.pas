@@ -118,9 +118,10 @@ function PackageSettingsKey: string;
 function DiscoveryEnabled: Boolean;
 
 // True, the default, when the property editors of the loaded packages build
-// the inspector rows and the component editor verbs and the IDE's form
-// designer package is hosted; off, the inspector reads type information only.
-// Read once per process from the HostedEditors registry value.
+// the inspector rows and the component editors supply the verbs; off, the
+// inspector reads type information only. The same setting decides whether the
+// IDE's form and menu designer packages are hosted. Read once per process from
+// the HostedEditors registry value.
 function HostedEditors: Boolean;
 
 // Broadcast to the IDesignNotification listeners the loaded packages
@@ -1275,6 +1276,11 @@ const
   DesignerInitializerExport: AnsiString =
     '@Vclformdesigner@InitializeDesigner$qqrx63System@%DelphiInterface$36' +
     'Componentdesigner@IDesignEnvironment%';
+  MenuDesignerPackage = 'vclmenudesigner' + PackageSuffix + '.bpl';
+  // Mangled export name of Mnubuild.IDERegister; an IDE package registers
+  // through IDERegister, which the Register export scan does not match.
+  MenuDesignerRegisterExport: AnsiString =
+    '@Borland@Vcl@Design@Mnubuild@IDERegister$qqrv';
 
 type
   // Signature DesignerInitializerExport is called through; a mismatch is not
@@ -1287,6 +1293,9 @@ var
   HostedRead: Boolean = False;
   Hosted: Boolean = False;
   DesignerHosted: Boolean = False;
+  // True once the form designer package was initialized without an error.
+  DesignerReady: Boolean = False;
+  MenuDesignerHosted: Boolean = False;
   // Held for the process lifetime: the designer package calls back into it
   // long after initialization.
   DesignEnvironment: IDesignEnvironment;
@@ -1370,12 +1379,53 @@ begin
       LogEntry(lsInfo, Format('the form designer package showed %s - hidden',
         [Hidden]));
     ActivateDfmDesigner;
+    DesignerReady := True;
     LogEntry(lsInfo, 'the form designer package is hosted - design-window ' +
       'editor dialogs (collection editors among them) are available');
   except
     on E: Exception do
       LogEntry(lsWarn, Format('hosting the form designer package failed: ' +
         '%s: %s - design-window editor dialogs are unavailable',
+        [E.ClassName, E.Message]));
+  end;
+end;
+
+// The IDE lists the menu designer package among its own packages, which
+// discovery does not read. It registers the TMenu component editor and the
+// Items property editor into the ambient editor group, so the module is never
+// unloaded.
+procedure HostMenuDesigner;
+var
+  Module: HMODULE;
+  RegisterProc: procedure;
+begin
+  if MenuDesignerHosted or not HostedEditors then
+    Exit;
+  MenuDesignerHosted := True;
+  try
+    Module := LoadPackage(IdeBinDirectory + '\' + MenuDesignerPackage);
+    RestoreHooksAfterLoad('the menu designer package');
+    @RegisterProc := GetProcAddress(Module,
+      PAnsiChar(MenuDesignerRegisterExport));
+    if @RegisterProc = nil then
+    begin
+      LogEntry(lsWarn, Format('%s exports no IDERegister procedure - the ' +
+        'menu designer is unavailable', [MenuDesignerPackage]));
+      Exit;
+    end;
+    RegisterProc;
+    RestoreHooksAfterLoad('the menu designer registration');
+    if DesignerReady then
+      LogEntry(lsInfo, 'the menu designer package is hosted - a menu ' +
+        'component offers the menu designer')
+    else
+      LogEntry(lsWarn, 'the menu designer package is hosted without the form ' +
+        'designer package - a menu component offers the menu designer, but ' +
+        'its window may not open');
+  except
+    on E: Exception do
+      LogEntry(lsWarn, Format('hosting the menu designer package failed: ' +
+        '%s: %s - the menu designer is unavailable',
         [E.ClassName, E.Message]));
   end;
 end;
@@ -1388,11 +1438,12 @@ begin
   // SettingsKeyName must be set before anything reads the configuration.
   SettingsKeyName := ASettingsKey;
   InstallRegistrationHooks;
-  // Registrations made before the first candidate, the hosted form designer
-  // package above all, land in this ambient group; it is never dropped, so no
-  // candidate may share a group with them.
+  // Registrations made before the first candidate, the hosted form and menu
+  // designer packages above all, land in this ambient group; it is never
+  // dropped, so no candidate may share a group with them.
   NewEditorGroup;
   HostFormDesigner;
+  HostMenuDesigner;
   try
     ReadConfiguration;
     Candidates := CandidatePackages;

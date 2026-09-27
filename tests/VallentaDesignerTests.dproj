@@ -92,6 +92,7 @@
         <DCCReference Include="Vallenta.FormEditor.Tests.Align.pas"/>
         <DCCReference Include="Vallenta.FormEditor.Tests.Guides.pas"/>
         <DCCReference Include="Vallenta.FormEditor.Tests.Styles.pas"/>
+        <DCCReference Include="Vallenta.FormEditor.Tests.MainMenu.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

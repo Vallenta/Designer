@@ -291,9 +291,10 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | `Tests.ZOrder` | `RestackSelection` and `CanRestackSelection`: to front, to back, a group step, a step that moves nothing, a guarded document, the root, and undo and redo. Z-order is an index among siblings that no property records, so every case reads a saved file |
 | `Tests.Align` | `AlignSelection`, `SizeSelection` and the predicates: each action against the extent the selection spans and not against the control selected last, what an `Align` property and a foreign container make the command refuse, the aligned control as a fixed edge of the extent, a run that writes nothing, a guarded document, one undo step for the group, the same rule under a nudge, what each action demands of the selection, and that a new selection and the guard both say the commands changed |
 | `Tests.Guides` | The segments `AlignmentGuides` computes, the offsets `PullToGuides` reports, the keys that arm the guide lines through `IsDesignMsg`, and the edge of another control, in any container, a move drops on against the grid. Moves the system cursor, so an interactive desktop session is required |
-| `Tests.Tiles` | `IsNonVisual` and `TileAt`: which components of a root are drawn as tiles, and which tile a point hits |
+| `Tests.Tiles` | `IsNonVisual` and `TileAt`: which components of a root are drawn as tiles, a component written by a parent staying untiled before it has a parent, and which tile a point hits |
 | `Tests.DesignHitTest` | Which messages `IsDesignMsg` consumes and which are left to the control, which component a click resolves to, the parent of the selection chrome, the load-time `Modified` report, and the read-only guard. Moves the system cursor, so an interactive desktop session is required |
 | `Tests.InspectorRows` | Which editing control a row offers: the pick list `paValueList` fills, and the ellipsis `paDialog` — or `paCustomDropDown` without `paValueList` — shows |
+| `Tests.MainMenu` | A main menu on a designed form: the verb offered by its component editor on the context menu, and an `Items` row that opens a dialog and does not expand. Then, on a shown document, a user's steps — the menu placed from the palette, the menu designer opened through the verb, the item selected by the menu designer captioned through the inspector's write bracket — after which no menu item is drawn as a tile and the band above the client area carries a painted menu bar, read from the window's own surface. Further cases type into the menu designer: two keys reach the inspector's `Caption` editor, which holds the focus, Enter writes the caption and activates the menu designer again, a key after Enter starts a fresh edit, and Escape discards it. A key on a read-only document, or on a row without free text, opens no editor and leaves the focus where it was, and the menu designer stays in front of the document window while the inspector takes a typed key. The cases opening the menu designer need the process to be allowed into the foreground, because the menu designer selects an item only once its window is activated. The editors come from the hosted menu designer package, whose texts follow the language of its resources and are not compared |
 | `Tests.DesignerDiscovery` | How a package reaches the designer from a component it holds: `FindRootDesigner` up the owner chain, the `IDesignerNotify` query, and the nil a component outside `csDesigning` produces |
 | `Tests.IdeServices` | The `BorlandIDEServices` stub as a design package queries it during unit initialization and `Register`: the menu, action list, image list and toolbars, and the about-box calls |
 | `Tests.Diagnostics` | The stack capture and address naming in `Packages.Stacks`, and the export table `Packages.PeImage` reads. Win32 with runtime packages only |
@@ -405,8 +406,8 @@ presence. It is `Application.MainForm` because the application requires one and
 because the tray icon needs an owner that outlives every document window.
 
 **What it holds**, all of it set up once per process: `InstallStandardEditors`,
-the packages, the hosted designer package with its environment and service
-stand-ins, the class-group claim, the notification fan-out, the streaming class
+the packages, the hosted form and menu designer packages with the environment
+and service stand-ins, the class-group claim, the notification fan-out, the streaming class
 registry, the session log, the session registry, the window registry, the pipe
 server, the recovery journal, and the tray icon.
 
@@ -749,7 +750,8 @@ is consumed like the rest of its frame.
 | `RestackSelection` / `CanRestackSelection` | Brings the selection to the front or sends it to the back among its siblings, as one undo step for the group |
 | `GuardReadOnly` / `LiftGuard` | Refuses every edit while a load left references it could not resolve; lifting the guard is a user decision and is logged as one |
 | `BeginEditing` | Called once the document is on screen: starts geometry tracking and attaches the selection's handles |
-| `PaintMenu`, `UpdateCaption`, `UpdateDesigner`, `ValidateRename`, `Notification`, `CanInsertComponent` | Not implemented; each returns a fixed value |
+| `PaintMenu` | Draws the visible top-level items of a form's main menu into the band reserved by the VCL above the client area of a designed form with a parent, `SM_CYMENU` pixels tall |
+| `UpdateCaption`, `UpdateDesigner`, `ValidateRename`, `Notification`, `CanInsertComponent` | Not implemented; each returns a fixed value |
 
 **Input is consumed wholesale.** Every mouse and keyboard message the designer
 sees returns True, so a designed control never runs its own handlers. This is
@@ -1073,6 +1075,13 @@ an edge would otherwise reappear on the far side.
 
 Only the glyph is clickable, not the caption, so two tiles side by side stay
 distinguishable.
+
+**A tile stands for a component written by the root itself** (`IsNonVisual`): not a
+control, and not a component whose `HasParent` is True, which a parent component
+writes — a grid's views and levels, and a menu's items. The test is `HasParent`
+and not an assigned parent, because the menu designer keeps unnamed placeholder
+items owned by the root and not yet in any menu; the save never writes them, and
+the tile layer does not show them.
 
 **On a form or frame the tiles are drawn in a window of their own**
 (`TTileLayer`), a child of the document's host raised above the designed
@@ -1681,6 +1690,26 @@ the editor's own `OnDblClick`. A handler name typed into the editor and not yet
 entered is written rather than discarded: the write wires the event and requests
 the handler, which leaves nothing to activate on top of it.
 
+**Keys typed in a design window edit a row of the inspector.** A design window
+of the IDE, such as the menu designer, passes each key not handled by the window
+itself to the designer through `ModalEdit`, together with the window itself as
+an `IActivatable`, and names the row to edit beforehand through
+`SelectItemName` — the menu designer names `Caption` for a new item. The
+inspector looks that row up by name when the key arrives, opens its editor
+holding the key with the caret after it and takes the keyboard focus, so the
+keys after it arrive in the editor directly. A key that reaches the design
+window while the editor is open is typed into the editor, Backspace included,
+and the editor takes the focus back. Enter applies the text and Escape discards
+it, and either one activates the design window again, so the next key typed
+there starts the caption of the next item. Clicking elsewhere in the document
+window applies the text like any other edit and does not activate the design
+window; a selection changed in the design window while the editor is open
+discards the text. A control character opens nothing, and so does a key on a
+read-only document or on a row without free text, which also leaves the focus
+and the visible tab as they were. The inspector holds the design window through
+a free notification and activates it only while it is shown, so a window closed
+or hidden during a typed edit is not called.
+
 ## Palette and Component Creation
 
 **One registry, two consumers.** `Core.ComponentRegistry` holds the supported
@@ -1983,6 +2012,29 @@ it is the IDE's window and not this program's. `HostFormDesigner` runs once per
 process, and only while `HostedEditors` is on — the same setting that decides
 whether the inspector's rows come from the editors.
 
+**The menu designer is an IDE package as well** (`HostMenuDesigner`). The
+component editor of `TMenu`, which offers the menu designer on the context menu,
+and the property editor showing a menu's `Items` as `(Menu)` with a button that
+opens it, are registered by a package listed among the IDE's own packages rather
+than among its component packages, and discovery reads only the latter. It is
+loaded right after the form designer package, under the same `HostedEditors`
+condition, and its `IDERegister` export is called: an IDE package registers
+through that export, which the `Register` export scan does not match. Its editors
+are registered into the ambient editor group, so the package stays loaded for the
+lifetime of the process.
+
+**A design window opened by a component editor stays in front of its
+document.** Such a window, the menu designer for one, is made an owned window
+of the document window once the editor call has returned (`AdoptDesignWindows`
+in `Surface.FormDesigner`), so activating the document window — which the
+inspector does for a key typed in the menu designer — leaves it in front, as the
+IDE's design windows stay in front of the IDE's main window. The owner of the
+existing window is changed rather than its `PopupParent` set: that property
+recreates the window, and destroying the active window hands the foreground to
+another program. A window recreated later, by a style switch, returns to its
+default owner. A window opened from the ellipsis of an inspector row is not
+adopted.
+
 **The hooks are the runtime's questions; the IDE's service layer is queried
 directly.** A design package also reaches past every hook into
 `BorlandIDEServices`: one registers IDE wizards for the personalities it finds
@@ -2144,6 +2196,8 @@ own service layer cannot be served and degrades to its plain row.
 | `OnGeometryChanged` | bounds or a tile position changed through a gesture | geometry rows |
 | `OnCreationFinished` | a placement ended, however it ended | palette releases its pressed button |
 | `OnContextMenu` | the right button is released, after the press has selected | the menu host, which reads the selection and cursor position itself |
+| `OnInspectorRowRequest` | a hosted design window names the inspector row to edit (`SelectItemName`) | the inspector, which makes that row current |
+| `OnInspectorEditRequest` | a hosted design window hands on a typed key (`ModalEdit`) | the inspector, which opens the row's editor with the key and activates the design window again after Enter or Escape |
 
 Three are queries rather than announcements, and they are answered by the window
 because only it holds the session reference: `OnCouplingQuery` answers whether a code

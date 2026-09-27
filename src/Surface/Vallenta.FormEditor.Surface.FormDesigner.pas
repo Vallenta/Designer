@@ -151,6 +151,8 @@ type
     FCouplingQuery: TCodeCouplingQuery;
     FRenameRequest: TRenameRequest;
     FRenameQuery: TRenameStateQuery;
+    FOnInspectorRowRequest: TInspectorRowRequest;
+    FOnInspectorEditRequest: TInspectorEditRequest;
     FLoadedState: TLoadedFormState;
     FSelected: TComponent;
     FSelection: TList<TComponent>;
@@ -209,7 +211,12 @@ type
     procedure Settle;
     procedure PushSettledImage;
     function GetHostDesigner: DesignIntf.IDesigner;
+    function DocumentWindow: TCustomForm;
+    procedure AdoptDesignWindows(const ABefore: TArray<TCustomForm>);
     procedure HostSelectionRequested(Sender: TObject);
+    procedure HostInspectorRowRequested(const APropertyName: string);
+    procedure HostInspectorEditRequested(AKey: Char;
+      const AReturnWindow: IActivatable);
     procedure HostModified(Sender: TObject);
     procedure NotifySelection;
     procedure StructureChanged;
@@ -692,6 +699,14 @@ type
     // Answers whether a rename for a name is still pending at the window.
     property OnRenameQuery: TRenameStateQuery read FRenameQuery
       write FRenameQuery;
+    // Raised when a hosted design window asks the object inspector to make a
+    // row current.
+    property OnInspectorRowRequest: TInspectorRowRequest
+      read FOnInspectorRowRequest write FOnInspectorRowRequest;
+    // Raised when a hosted design window hands a typed key to the object
+    // inspector.
+    property OnInspectorEditRequest: TInspectorEditRequest
+      read FOnInspectorEditRequest write FOnInspectorEditRequest;
   end;
 
 const
@@ -718,6 +733,7 @@ uses
   System.Generics.Defaults,
   Vcl.Clipbrd,
   Vcl.Dialogs,
+  Vcl.Menus,
   Vallenta.FormEditor.Streaming.Saver,
   Vallenta.FormEditor.Streaming.TextSpans,
   Vallenta.FormEditor.Packages.Host,
@@ -804,6 +820,19 @@ begin
       Continue;
     Result := Result + [FieldOf(Component)];
   end;
+end;
+
+procedure TFormDesigner.HostInspectorRowRequested(const APropertyName: string);
+begin
+  if Assigned(FOnInspectorRowRequest) then
+    FOnInspectorRowRequest(APropertyName);
+end;
+
+procedure TFormDesigner.HostInspectorEditRequested(AKey: Char;
+  const AReturnWindow: IActivatable);
+begin
+  if Assigned(FOnInspectorEditRequest) then
+    FOnInspectorEditRequest(AKey, AReturnWindow);
 end;
 
 procedure TFormDesigner.HostSelectionRequested(Sender: TObject);
@@ -915,6 +944,8 @@ var
   Editor: IComponentEditor;
   Before: Integer;
   Error: string;
+  Shown: TArray<TCustomForm>;
+  I: Integer;
 begin
   if not HostedEditors then
     Exit;
@@ -924,6 +955,9 @@ begin
   PushUndo(uoProperty);
   BeginGridEdit;
   Before := FHostDesignerObject.ModificationCount;
+  Shown := nil;
+  for I := 0 to Screen.CustomFormCount - 1 do
+    Shown := Shown + [Screen.CustomForms[I]];
   try
     if not RunComponentEditor(Editor, AVerb, Error) and (FLog <> nil) then
       FLog.AddFmt(lsWarn, 'the component editor of %s failed: %s',
@@ -932,10 +966,60 @@ begin
     EndGridEdit;
     Editor := nil;
   end;
+  AdoptDesignWindows(Shown);
   if FHostDesignerObject.ModificationCount > Before then
     NotifyEditorChanged
   else
     DropUndo;
+end;
+
+// The top-level window holding the document: the document window when the
+// root is embedded, the designed form itself when it is not; nil for a data
+// module that is not presented yet.
+function TFormDesigner.DocumentWindow: TCustomForm;
+begin
+  if FForm <> nil then
+    Result := GetParentForm(FForm, True)
+  else if FSurfaceControl <> nil then
+    Result := GetParentForm(FSurfaceControl, True)
+  else
+    Result := nil;
+end;
+
+// Makes each form shown since ABefore an owned window of the document window,
+// so a design window stays in front of it when the document window activates.
+// The owner of the existing window is changed: PopupParent would recreate the
+// window, and destroying the active window hands the foreground to another
+// program. A window recreated later, by a style switch, gets its default owner.
+procedure TFormDesigner.AdoptDesignWindows(const ABefore: TArray<TCustomForm>);
+var
+  Window, Form, Known: TCustomForm;
+  Opened: TArray<TCustomForm>;
+  IsNew: Boolean;
+  I: Integer;
+begin
+  Window := DocumentWindow;
+  if Window = nil then
+    Exit;
+  Opened := nil;
+  for I := 0 to Screen.CustomFormCount - 1 do
+  begin
+    Form := Screen.CustomForms[I];
+    if (Form = Window) or not Form.Visible or (Form.PopupParent <> nil) or
+      (GetWindow(Form.Handle, GW_OWNER) = Window.Handle) then
+      Continue;
+    IsNew := True;
+    for Known in ABefore do
+      if Known = Form then
+      begin
+        IsNew := False;
+        Break;
+      end;
+    if IsNew then
+      Opened := Opened + [Form];
+  end;
+  for Form in Opened do
+    SetWindowLongPtr(Form.Handle, GWLP_HWNDPARENT, LONG_PTR(Window.Handle));
 end;
 
 procedure TFormDesigner.RunDefaultComponentEditor;
@@ -1000,6 +1084,8 @@ begin
         Result := UniqueName(ABase);
       end);
     FHostDesignerObject.OnSelectionRequest := HostSelectionRequested;
+    FHostDesignerObject.OnInspectorRowRequest := HostInspectorRowRequested;
+    FHostDesignerObject.OnInspectorEditRequest := HostInspectorEditRequested;
     FHostDesignerObject.OnModified := HostModified;
     FHostDesignerObject.OnRenameMethod := BeginMethodRename;
     FHostDesignerObject.Coupling := FCodeCoupling;
@@ -1365,7 +1451,66 @@ begin
 end;
 
 procedure TFormDesigner.PaintMenu;
+var
+  Form: TCustomForm;
+  Window: HWND;
+  Frame, Band, ItemRect, TextRect: TRect;
+  Origin: TPoint;
+  DC: HDC;
+  Canvas: TCanvas;
+  Item: TMenuItem;
+  Caption: string;
+  Padding, I: Integer;
 begin
+  if not (FRoot is TCustomForm) then
+    Exit;
+  Form := TCustomForm(FRoot);
+  if not Form.HandleAllocated or (Form.Menu = nil) or
+    (Form.Menu.Items.Count = 0) then
+    Exit;
+  Window := Form.Handle;
+  GetWindowRect(Window, Frame);
+  Origin := Form.ClientOrigin;
+  // Must match the VCL's WM_NCCALCSIZE reservation for a designed form with a
+  // parent: SM_CYMENU pixels above the client area, unscaled.
+  Band := Rect(Origin.X - Frame.Left,
+    Origin.Y - Frame.Top - GetSystemMetrics(SM_CYMENU),
+    Origin.X - Frame.Left + Form.ClientWidth, Origin.Y - Frame.Top);
+  DC := GetWindowDC(Window);
+  if DC = 0 then
+    Exit;
+  Canvas := TCanvas.Create;
+  try
+    Canvas.Handle := DC;
+    IntersectClipRect(DC, Band.Left, Band.Top, Band.Right, Band.Bottom);
+    Canvas.Brush.Color := clMenuBar;
+    Canvas.FillRect(Band);
+    Canvas.Brush.Style := bsClear;
+    Canvas.Font := Screen.MenuFont;
+    Padding := Canvas.TextWidth('0');
+    ItemRect := Band;
+    for I := 0 to Form.Menu.Items.Count - 1 do
+    begin
+      Item := Form.Menu.Items[I];
+      if not Item.Visible or Item.IsLine then
+        Continue;
+      Caption := Item.Caption;
+      TextRect := Rect(0, 0, 0, 0);
+      Canvas.TextRect(TextRect, Caption, [tfCalcRect, tfSingleLine]);
+      ItemRect.Right := ItemRect.Left + TextRect.Width + 2 * Padding;
+      if Item.Enabled then
+        Canvas.Font.Color := clMenuText
+      else
+        Canvas.Font.Color := clGrayText;
+      Canvas.TextRect(ItemRect, Caption,
+        [tfCenter, tfVerticalCenter, tfSingleLine]);
+      ItemRect.Left := ItemRect.Right;
+    end;
+  finally
+    Canvas.Handle := 0;
+    Canvas.Free;
+    ReleaseDC(Window, DC);
+  end;
 end;
 
 procedure TFormDesigner.UpdateCaption(AVisible: Boolean; AUpdateFrame: Boolean);

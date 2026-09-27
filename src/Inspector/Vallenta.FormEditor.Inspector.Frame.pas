@@ -11,8 +11,9 @@ unit Vallenta.FormEditor.Inspector.Frame;
 // written to the designer, and a selection made on the design surface is
 // written back to the tree. VCL frame, main thread only.
 //
-// Attach assigns the designer's OnSelectionChanged, OnStructureChanged and
-// OnGeometryChanged, so one designer can be attached to one inspector only.
+// Attach assigns the designer's OnSelectionChanged, OnStructureChanged,
+// OnGeometryChanged, OnInspectorRowRequest and OnInspectorEditRequest, so one
+// designer can be attached to one inspector only.
 
 interface
 
@@ -24,6 +25,7 @@ uses
   Vcl.StdCtrls,
   Vcl.ExtCtrls,
   Vcl.ComCtrls,
+  DesignIntf,
   Vallenta.FormEditor.Surface.FormDesigner,
   Vallenta.FormEditor.Streaming.Preserved,
   Vallenta.FormEditor.Inspector.PropertyModel,
@@ -50,7 +52,20 @@ type
     FEventModel: TPropertyModel;
     FPropertyGrid: TPropertyGrid;
     FEventGrid: TPropertyGrid;
+    // Row name last requested by a hosted design window; used once, by the
+    // next typed key.
+    FRequestedRow: string;
+    FReturnWindow: IActivatable;
+    // FReturnWindow as a component, watched through FreeNotification so a
+    // design window closed during a typed edit is dropped rather than called.
+    FReturnComponent: TComponent;
     procedure DesignerSelectionChanged(Sender: TObject);
+    procedure DesignerRowRequested(const APropertyName: string);
+    procedure DesignerEditRequested(AKey: Char;
+      const AReturnWindow: IActivatable);
+    procedure GridTypedEditEnded(Sender: TObject);
+    procedure HoldReturnWindow(const AWindow: IActivatable);
+    procedure ForgetReturnWindow;
     procedure DesignerStructureChanged(Sender: TObject);
     procedure DesignerGeometryChanged(Sender: TObject);
     procedure AddControlNode(ParentNode: TTreeNode; Control: TControl);
@@ -73,6 +88,9 @@ type
     procedure GridEditPending(Sender: TObject);
     function GetTreeHeight: Integer;
     procedure SetTreeHeight(AValue: Integer);
+  protected
+    procedure Notification(AComponent: TComponent;
+      Operation: TOperation); override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -116,6 +134,7 @@ begin
   FPropertyGrid.OnEditorInvoked := GridEditorInvoked;
   FPropertyGrid.OnEditCancelled := GridEditCancelled;
   FPropertyGrid.OnEditPending := GridEditPending;
+  FPropertyGrid.OnTypedEditEnded := GridTypedEditEnded;
 
   FEventGrid := TPropertyGrid.Create(Self);
   FEventGrid.Parent := EventsTab;
@@ -126,6 +145,7 @@ begin
   FEventGrid.OnEditorInvoked := GridEditorInvoked;
   FEventGrid.OnEditCancelled := GridEditCancelled;
   FEventGrid.OnEditPending := GridEditPending;
+  FEventGrid.OnTypedEditEnded := GridTypedEditEnded;
 end;
 
 destructor TInspectorFrame.Destroy;
@@ -152,13 +172,19 @@ begin
     FDesigner.OnSelectionChanged := nil;
     FDesigner.OnStructureChanged := nil;
     FDesigner.OnGeometryChanged := nil;
+    FDesigner.OnInspectorRowRequest := nil;
+    FDesigner.OnInspectorEditRequest := nil;
   end;
+  ForgetReturnWindow;
+  FRequestedRow := '';
   FDesigner := ADesigner;
   if FDesigner <> nil then
   begin
     FDesigner.OnSelectionChanged := DesignerSelectionChanged;
     FDesigner.OnStructureChanged := DesignerStructureChanged;
     FDesigner.OnGeometryChanged := DesignerGeometryChanged;
+    FDesigner.OnInspectorRowRequest := DesignerRowRequested;
+    FDesigner.OnInspectorEditRequest := DesignerEditRequested;
   end;
   RebuildTree;
   RebuildGrids;
@@ -567,6 +593,95 @@ begin
   if not FUpdating then
     SyncTreeToSelection;
   RebuildGrids;
+end;
+
+procedure TInspectorFrame.DesignerRowRequested(const APropertyName: string);
+begin
+  FRequestedRow := APropertyName;
+  if not FPropertyGrid.SelectRowNamed(APropertyName) then
+    FEventGrid.SelectRowNamed(APropertyName);
+end;
+
+// The requested row is looked up again by name, because a selection change
+// between the request and the key rebuilds both grids.
+procedure TInspectorFrame.DesignerEditRequested(AKey: Char;
+  const AReturnWindow: IActivatable);
+var
+  Grid: TPropertyGrid;
+  Previous: TTabSheet;
+begin
+  Grid := nil;
+  if FRequestedRow <> '' then
+  begin
+    if FPropertyGrid.SelectRowNamed(FRequestedRow) then
+      Grid := FPropertyGrid
+    else if FEventGrid.SelectRowNamed(FRequestedRow) then
+      Grid := FEventGrid;
+    FRequestedRow := '';
+  end;
+  if Grid = nil then
+    if Tabs.ActivePage = EventsTab then
+      Grid := FEventGrid
+    else
+      Grid := FPropertyGrid;
+  Previous := Tabs.ActivePage;
+  Tabs.ActivePage := Grid.Parent as TTabSheet;
+  if Grid.BeginTypedEdit(AKey) then
+    HoldReturnWindow(AReturnWindow)
+  else
+    Tabs.ActivePage := Previous;
+end;
+
+// A hidden design window is not activated: its OnActivate handler may focus a
+// control of it, which raises for an invisible window.
+procedure TInspectorFrame.GridTypedEditEnded(Sender: TObject);
+var
+  Window: IActivatable;
+  Shown: Boolean;
+begin
+  Window := FReturnWindow;
+  Shown := not (FReturnComponent is TControl) or
+    TControl(FReturnComponent).Visible;
+  ForgetReturnWindow;
+  if (Window <> nil) and Shown then
+    Window.Activate
+  else
+    (Sender as TPropertyGrid).SetFocus;
+end;
+
+procedure TInspectorFrame.HoldReturnWindow(const AWindow: IActivatable);
+var
+  Instance: TObject;
+begin
+  ForgetReturnWindow;
+  if AWindow = nil then
+    Exit;
+  FReturnWindow := AWindow;
+  Instance := AWindow as TObject;
+  if Instance is TComponent then
+  begin
+    FReturnComponent := TComponent(Instance);
+    FReturnComponent.FreeNotification(Self);
+  end;
+end;
+
+procedure TInspectorFrame.ForgetReturnWindow;
+begin
+  if FReturnComponent <> nil then
+    FReturnComponent.RemoveFreeNotification(Self);
+  FReturnComponent := nil;
+  FReturnWindow := nil;
+end;
+
+procedure TInspectorFrame.Notification(AComponent: TComponent;
+  Operation: TOperation);
+begin
+  inherited Notification(AComponent, Operation);
+  if (Operation = opRemove) and (AComponent = FReturnComponent) then
+  begin
+    FReturnComponent := nil;
+    FReturnWindow := nil;
+  end;
 end;
 
 procedure TInspectorFrame.DesignerStructureChanged(Sender: TObject);

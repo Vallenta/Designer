@@ -30,9 +30,10 @@ const
   TileAdornerMargin = 2;
   TileCaptionGap = 2;
 
-// True for a component drawn as a tile: not nil, not a TControl, and without
-// a parent component. A component whose GetParentComponent returns a parent,
-// such as a grid's views and levels, is not tiled.
+// True for a component drawn as a tile: not nil, not a TControl, and written
+// by the root itself. A component whose HasParent is True, such as a grid's
+// views and levels or a menu item, is written by a parent component and is not
+// tiled, even while no parent is assigned yet.
 function IsNonVisual(AComponent: TComponent): Boolean;
 
 // Tile position in surface coordinates, read from the component's DesignInfo:
@@ -157,7 +158,7 @@ end;
 function IsNonVisual(AComponent: TComponent): Boolean;
 begin
   Result := (AComponent <> nil) and not (AComponent is TControl) and
-    (AComponent.GetParentComponent = nil);
+    not AComponent.HasParent;
 end;
 
 function TilePosition(AComponent: TComponent): TPoint;

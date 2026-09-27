@@ -33,6 +33,18 @@ type
   TMethodRenameRequest = function(const AOldName, ANewName: string): string
     of object;
 
+  // Asks the object inspector to make the row named APropertyName current, as
+  // a hosted design window does through SelectItemName.
+  TInspectorRowRequest = procedure(const APropertyName: string) of object;
+
+  // Asks the object inspector to open the current row's editor with AKey typed
+  // into it, as a hosted design window does through ModalEdit. AReturnWindow
+  // is activated when that edit ends with Enter or Escape; it is usually the
+  // design window itself, a TComponent whose interface is not reference
+  // counted, so a handler keeping it must watch for its destruction.
+  TInspectorEditRequest = procedure(AKey: Char;
+    const AReturnWindow: IActivatable) of object;
+
   // Gathers the items a design-time callback delivers one at a time into an
   // array.
   TCollector<T> = class
@@ -77,6 +89,8 @@ type
     FStubbed: TStringList;
     FCoupling: ICodeCoupling;
     FOnRenameMethod: TMethodRenameRequest;
+    FOnInspectorRowRequest: TInspectorRowRequest;
+    FOnInspectorEditRequest: TInspectorEditRequest;
     procedure NoteOnce(const AKey, AText: string);
     procedure NoteStub(const AMethod: string);
     procedure NoteUncoupled(const AMethod, AWanted: string);
@@ -115,6 +129,12 @@ type
     // instead of sending the request.
     property OnRenameMethod: TMethodRenameRequest read FOnRenameMethod
       write FOnRenameMethod;
+    // Target of SelectItemName; while unassigned, SelectItemName logs once.
+    property OnInspectorRowRequest: TInspectorRowRequest
+      read FOnInspectorRowRequest write FOnInspectorRowRequest;
+    // Target of ModalEdit; while unassigned, ModalEdit logs once.
+    property OnInspectorEditRequest: TInspectorEditRequest
+      read FOnInspectorEditRequest write FOnInspectorEditRequest;
 
     { IHostDesignerState }
     function ModificationCount: Integer;
@@ -1043,12 +1063,18 @@ end;
 procedure TVallentaDesigner.ModalEdit(EditKey: Char;
   const ReturnWindow: IActivatable);
 begin
-  NoteStub('ModalEdit');
+  if Assigned(FOnInspectorEditRequest) then
+    FOnInspectorEditRequest(EditKey, ReturnWindow)
+  else
+    NoteStub('ModalEdit');
 end;
 
 procedure TVallentaDesigner.SelectItemName(const PropertyName: string);
 begin
-  NoteStub('SelectItemName');
+  if Assigned(FOnInspectorRowRequest) then
+    FOnInspectorRowRequest(PropertyName)
+  else
+    NoteStub('SelectItemName');
 end;
 
 procedure TVallentaDesigner.Resurrect;

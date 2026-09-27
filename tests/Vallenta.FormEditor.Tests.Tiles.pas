@@ -8,8 +8,8 @@ unit Vallenta.FormEditor.Tests.Tiles;
 
 // Covers IsNonVisual and TileAt of Vallenta.FormEditor.Surface.Tiles: which
 // components of a root are drawn as tiles, and which tile a point hits.
-// A TControl is not tiled, nor is a component whose GetParentComponent
-// returns a parent; every other component owned by the root is.
+// A TControl is not tiled, nor is a component whose HasParent is True, which
+// a parent component writes; every other component owned by the root is.
 
 interface
 
@@ -29,6 +29,8 @@ type
     procedure ASubComponentAParentPresentsStandsAsNoTile;
     [Test]
     procedure TileHitTestingPassesOverAParentedSubComponent;
+    [Test]
+    procedure AComponentAParentWritesStandsAsNoTileBeforeItHasOne;
   end;
 
 implementation
@@ -52,6 +54,13 @@ type
     procedure SetParentComponent(AParent: TComponent); override;
   end;
 
+  // Test double for a placeholder menu item held by the menu designer: it
+  // reports a parent through HasParent before any parent is assigned.
+  TParentWrittenComponent = class(TComponent)
+  public
+    function HasParent: Boolean; override;
+  end;
+
 function TSubComponent.GetParentComponent: TComponent;
 begin
   Result := FParentComponent;
@@ -65,6 +74,11 @@ end;
 procedure TSubComponent.SetParentComponent(AParent: TComponent);
 begin
   FParentComponent := AParent;
+end;
+
+function TParentWrittenComponent.HasParent: Boolean;
+begin
+  Result := True;
 end;
 
 { TTileTests }
@@ -137,6 +151,23 @@ begin
       'the hit went past the tile to a sub-component that has none');
     Assert.IsNull(TileAt(Root, Point(500, 500)),
       'empty surface hit something');
+  finally
+    Root.Free;
+  end;
+end;
+
+procedure TTileTests.AComponentAParentWritesStandsAsNoTileBeforeItHasOne;
+var
+  Root: TComponent;
+  Placeholder: TParentWrittenComponent;
+begin
+  Root := TComponent.Create(nil);
+  try
+    Placeholder := TParentWrittenComponent.Create(Root);
+    Assert.IsNull(Placeholder.GetParentComponent,
+      'the double has a parent component');
+    Assert.IsFalse(IsNonVisual(Placeholder),
+      'a component its parent writes got a tile while no parent is assigned');
   finally
     Root.Free;
   end;

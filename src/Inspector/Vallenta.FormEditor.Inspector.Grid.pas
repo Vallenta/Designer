@@ -44,6 +44,8 @@ type
     FOnEditorInvoked: TNotifyEvent;
     FOnEditCancelled: TNotifyEvent;
     FOnEditPending: TNotifyEvent;
+    FOnTypedEditEnded: TNotifyEvent;
+    FTypedEdit: Boolean;
     FInvalidName: string;
     FInvalidMessage: string;
     FSilentEditName: string;
@@ -71,6 +73,7 @@ type
     procedure EllipsisClicked(Sender: TObject);
     procedure RunRowDialog(Row: TPropertyRow);
     procedure EditKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure EndTypedEdit;
     procedure EditorExit(Sender: TObject);
     procedure ComboSelected(Sender: TObject);
     function RowAt(Index: Integer): TPropertyRow;
@@ -111,6 +114,16 @@ type
     // Repaints the cells after values changed elsewhere; row count, expansion
     // state and selection stay as they are.
     procedure RefreshValues;
+    // Makes the visible top-level row named AName the current row, applying
+    // any open editor first. False when the model shows no such row.
+    function SelectRowNamed(const AName: string): Boolean;
+    // Opens the current row's text editor holding AKey with the caret after
+    // it, and focuses it. While a typed edit is open, AKey is typed into it
+    // instead, Backspace included, and the editor takes the focus back. False
+    // when the key went nowhere: a control character, no row, a read-only grid
+    // or row, a pick list without free text, or a grid that cannot take the
+    // focus.
+    function BeginTypedEdit(AKey: Char): Boolean;
     // Model currently shown; nil until the first ShowModel. Not owned.
     property Model: TPropertyModel read FModel;
     // Name of the row of the last refused edit. Written before OnInvalidValue
@@ -148,6 +161,12 @@ type
     // change, marking a property editor whose dialog cannot open in this
     // process. Empty otherwise; cleared at the start of every dialog run.
     property SilentEditName: string read FSilentEditName;
+    // Raised when an editor opened by BeginTypedEdit is closed with Enter or
+    // Escape, after the value was applied or discarded; the handler places the
+    // focus, and without one the grid takes it. A typed edit ended any other
+    // way raises nothing.
+    property OnTypedEditEnded: TNotifyEvent read FOnTypedEditEnded
+      write FOnTypedEditEnded;
   end;
 
 implementation
@@ -435,6 +454,7 @@ end;
 
 procedure TPropertyGrid.HideEditors;
 begin
+  FTypedEdit := False;
   FEditingRow := nil;
   FArmedRow := -1;
   FMethodsRow := nil;
@@ -761,21 +781,95 @@ end;
 
 procedure TPropertyGrid.EditKeyDown(Sender: TObject; var Key: Word;
   Shift: TShiftState);
+var
+  Typed: Boolean;
 begin
   case Key of
     VK_RETURN:
       begin
         Key := 0;
+        Typed := FTypedEdit;
         ApplyEditor;
-        SetFocus;
+        if Typed then
+          EndTypedEdit
+        else
+          SetFocus;
       end;
     VK_ESCAPE:
       begin
         Key := 0;
+        Typed := FTypedEdit;
         HideEditors;
-        SetFocus;
+        if Typed then
+          EndTypedEdit
+        else
+          SetFocus;
       end;
   end;
+end;
+
+procedure TPropertyGrid.EndTypedEdit;
+begin
+  if Assigned(FOnTypedEditEnded) then
+    FOnTypedEditEnded(Self)
+  else
+    SetFocus;
+end;
+
+function TPropertyGrid.SelectRowNamed(const AName: string): Boolean;
+var
+  I: Integer;
+begin
+  if FModel = nil then
+    Exit(False);
+  for I := 0 to FModel.VisibleCount - 1 do
+    if (FModel[I].Level = 0) and SameText(FModel[I].Name, AName) then
+    begin
+      Row := I;
+      Exit(True);
+    end;
+  Result := False;
+end;
+
+function TPropertyGrid.BeginTypedEdit(AKey: Char): Boolean;
+var
+  Printable: Boolean;
+  Current: TPropertyRow;
+  Editor: TWinControl;
+begin
+  Printable := (AKey >= ' ') and (AKey <> #127);
+  if FTypedEdit then
+  begin
+    if not Printable and (AKey <> #8) then
+      Exit(False);
+    if FEdit.Visible then
+      Editor := FEdit
+    else
+      Editor := FCombo;
+    if not Editor.Focused and Editor.CanFocus then
+      Editor.SetFocus;
+    // A drop-down combo box passes WM_CHAR on to its edit control.
+    SendMessage(Editor.Handle, WM_CHAR, Ord(AKey), 0);
+    Exit(True);
+  end;
+  Current := RowAt(Row);
+  if not Printable or FReadOnly or (Current = nil) or not Current.CanEdit or
+    ((Length(Current.PickList) > 0) and not Current.AllowsFreeText) or
+    not CanFocus then
+    Exit(False);
+  ShowEditorFor(Current);
+  if FEdit.Visible then
+  begin
+    FEdit.Text := AKey;
+    FEdit.SelStart := 1;
+  end
+  else
+  begin
+    FCombo.Text := AKey;
+    FCombo.SelStart := 1;
+  end;
+  FTypedEdit := True;
+  Result := True;
 end;
 
 procedure TPropertyGrid.EditorExit(Sender: TObject);

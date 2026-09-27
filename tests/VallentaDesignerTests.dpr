@@ -53,7 +53,8 @@ uses
   Vallenta.FormEditor.Tests.Clipboard in 'Vallenta.FormEditor.Tests.Clipboard.pas',
   Vallenta.FormEditor.Tests.Align in 'Vallenta.FormEditor.Tests.Align.pas',
   Vallenta.FormEditor.Tests.Guides in 'Vallenta.FormEditor.Tests.Guides.pas',
-  Vallenta.FormEditor.Tests.Styles in 'Vallenta.FormEditor.Tests.Styles.pas';
+  Vallenta.FormEditor.Tests.Styles in 'Vallenta.FormEditor.Tests.Styles.pas',
+  Vallenta.FormEditor.Tests.MainMenu in 'Vallenta.FormEditor.Tests.MainMenu.pas';
 
 var
   Runner: ITestRunner;
