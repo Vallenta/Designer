@@ -50,6 +50,7 @@ type
     procedure Rebuild;
     procedure LetGo;
   public
+    constructor Create(AOwner: TComponent); override;
     // Removes the listeners from both attached logs.
     destructor Destroy; override;
     // Rebuilds the list from both logs and listens for further entries; either
@@ -66,7 +67,8 @@ uses
   Winapi.Windows,
   Vcl.Graphics,
   Vcl.Themes,
-  Vcl.Clipbrd;
+  Vcl.Clipbrd,
+  Vallenta.FormEditor.Shell.Styles;
 
 const
   // Row text colors by severity, indexed first by whether the list background
@@ -86,6 +88,13 @@ begin
   Value := TColorRef(ColorToRGB(AColor));
   Result := GetRValue(Value) * 299 + GetGValue(Value) * 587 +
     GetBValue(Value) * 114 < 128000;
+end;
+
+constructor TMessagesFrame.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  KeepEraseOffScreen(HeaderPanel);
+  KeepEraseOffScreen(LogList);
 end;
 
 destructor TMessagesFrame.Destroy;

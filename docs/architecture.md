@@ -261,7 +261,7 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | `Shell.RecoveryDialog` | The documents an earlier session left unsaved, offered one row at a time. Built in code, and the one dialog here that is not OK/Cancel |
 | `Shell.AlignDialogs` | The align, same-size, tab-order and creation-order dialogs, built in code rather than from form resources |
 | `Shell.AlignPalette` | `TAlignPalette`, the alignment bar above the design surface: one drawn button opening a menu of the ten align actions, each entry carrying a glyph and a caption, and at its right end a combo box of the installed VCL styles. The glyphs are drawn from geometry into an image list rather than loaded from bitmaps, so they stay sharp at any DPI and the program ships no artwork for them. The button is drawn rather than being a `TButton`, which would take the keyboard focus off the design surface; the combo box changes the style only through its open list and hands the focus back when the list closes. The strip holds no designer reference; a chosen entry raises `OnAlign`, a chosen style `OnStyleChosen`, and the window carries out both |
-| `Shell.Styles` | The VCL style of the designer's own windows: the styles the release installs, the choice kept for the release, the switch between them, and the style applied at startup, whose warnings reach the session log once the core exists |
+| `Shell.Styles` | The VCL style of the designer's own windows: the styles the release installs, the choice kept for the release, the switch between them, the style applied at startup, whose warnings reach the session log once the core exists, and `KeepEraseOffScreen`, which keeps a pane control's background erase in its paint buffer |
 | `Shell.Layout` | `TLayoutStore` and `TDialogLayoutStore`: pane sizes, window size and resizable dialog geometry, as registry values under one key of this release. Sizes record the DPI they were measured at and are rescaled to the DPI they are read for |
 | `Shell.SplashWindow` + `.dfm` | `TSplashForm`, the start-up window: backdrop and mark as pictures the form resource carries, status line and progress bar as controls over them. Shown only by a start that becomes the core, driven from the `.dpr` and from the package load's progress, and closed before the message loop |
 
@@ -291,7 +291,7 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | `Tests.ZOrder` | `RestackSelection` and `CanRestackSelection`: to front, to back, a group step, a step that moves nothing, a guarded document, the root, and undo and redo. Z-order is an index among siblings that no property records, so every case reads a saved file |
 | `Tests.Align` | `AlignSelection`, `SizeSelection` and the predicates: each action against the extent the selection spans and not against the control selected last, what an `Align` property and a foreign container make the command refuse, the aligned control as a fixed edge of the extent, a run that writes nothing, a guarded document, one undo step for the group, the same rule under a nudge, what each action demands of the selection, and that a new selection and the guard both say the commands changed |
 | `Tests.Guides` | The segments `AlignmentGuides` computes, the offsets `PullToGuides` reports, the keys that arm the guide lines through `IsDesignMsg`, and the edge of another control, in any container, a move drops on against the grid. Moves the system cursor, so an interactive desktop session is required |
-| `Tests.Tiles` | `IsNonVisual` and `TileAt`: which components of a root are drawn as tiles, a component written by a parent staying untiled before it has a parent, and which tile a point hits |
+| `Tests.Tiles` | `IsNonVisual`, `TileAt` and `PaintDesignBackground`: which components of a root are drawn as tiles, a component written by a parent staying untiled before it has a parent, which tile a point hits, and where the grid dots land, also under a window or viewport origin moved the way a control's request for its parent's background moves it |
 | `Tests.DesignHitTest` | Which messages `IsDesignMsg` consumes and which are left to the control, which component a click resolves to, the parent of the selection chrome, the load-time `Modified` report, and the read-only guard. Moves the system cursor, so an interactive desktop session is required |
 | `Tests.InspectorRows` | Which editing control a row offers: the pick list `paValueList` fills, and the ellipsis `paDialog` — or `paCustomDropDown` without `paValueList` — shows |
 | `Tests.MainMenu` | A main menu on a designed form: the verb offered by its component editor on the context menu, and an `Items` row that opens a dialog and does not expand. Then, on a shown document, a user's steps — the menu placed from the palette, the menu designer opened through the verb, the item selected by the menu designer captioned through the inspector's write bracket — after which no menu item is drawn as a tile and the band above the client area carries a painted menu bar, read from the window's own surface. Further cases type into the menu designer: two keys reach the inspector's `Caption` editor, which holds the focus, Enter writes the caption and activates the menu designer again, a key after Enter starts a fresh edit, and Escape discards it. A key on a read-only document, or on a row without free text, opens no editor and leaves the focus where it was, and the menu designer stays in front of the document window while the inspector takes a typed key. The cases opening the menu designer need the process to be allowed into the foreground, because the menu designer selects an item only once its window is activated. The editors come from the hosted menu designer package, whose texts follow the language of its resources and are not compared |
@@ -742,7 +742,7 @@ is consumed like the rest of its frame.
 |---|---|
 | `Form` / `Root` | The hook host and what is being designed; equal for a form, split for a frame, `Form` is `nil` for a data module |
 | `IsDesignMsg` | Selection, drag, resize and the keyboard map. Returns True for every message it handled |
-| `PaintGrid` | Fills a design surface with its colour, dots it at the grid pitch and draws the icon tiles |
+| `PaintGrid` | Paints the background and grid dots of a form root, and fills the host area around a frame root, whose own grid is drawn by its window procedure; the icon tiles are in the tile layer above it |
 | `SurfaceControl` | What to repaint when the tile layer changes: the root's own window, or the icon canvas of a data module |
 | `DesignPPI` | Fixed at 96; see DPI Policy |
 | `UniqueName` | `BaseName` plus the lowest free index over the root's components |
@@ -2353,6 +2353,16 @@ stage is exercised deliberately.
   tile renderer silently rewrites that property. Anything drawing on a borrowed
   canvas restores what it touched. The headless round-trip test cannot catch
   this: it never paints.
+- **The design background is painted far more often than the surface changes.**
+  A themed control that shows its parent's background, such as a button, a
+  check box or a page control's tab strip, requests it through
+  `WM_PRINTCLIENT`, and every chrome window that moves exposes the surface below
+  it. The background is therefore one fill with a pattern brush, a single GDI
+  call whatever the form's area; a loop setting one pixel per grid dot made
+  10,800 GDI calls per request on a 960 x 720 form and accounted for about 90 %
+  of the time spent in a drag. The
+  brush origin is set from the device position of the painted area's corner,
+  because such a request moves the logical origin to the control's position.
 - **`Application.MainFormOnTaskbar` is safe only while the shell is the main
   form.** The stored `ShowInTaskBar` property is acquired by whichever form is
   the application's main form; a designed form holding that role ended up with
@@ -2484,12 +2494,27 @@ stage is exercised deliberately.
   with `SWP_FRAMECHANGED` (`RenewInputMapping`) at each of those points;
   resizing the whole window happens to do the same, which is why the symptom
   seemed to clear on its own.
-- **`WS_EX_COMPOSITED` is not the answer here.** It was tried on the designer
-  window, producing an endless repaint loop, and on the three pane frames,
-  producing a quiet palette and inspector, a messages pane that then flickered
-  constantly, and a heavy drag. Both were reverted. Suppressing the window's own
-  background erase changed nothing, which indicates the remaining resize flicker
-  is not the window's.
+- **The panes clear their background in a buffer, never on the screen.** A
+  resize repaints every pane it moves or sizes, and a VCL control, or the style
+  hook painting it, clears its background on the screen before it draws its
+  content, so the pane shows empty between the two. The captions, page
+  controls, message list and component tree of the three panes, and the
+  palette's search header, therefore paint through a memory buffer and drop the `WM_ERASEBKGND` the system sends them
+  (`KeepEraseOffScreen` in `Shell.Styles`); the erase into the paint buffer and
+  the style engine's parent-background request pass. A control added to a pane
+  that clears on the screen needs the same treatment.
+- **`WS_EX_COMPOSITED` is not the answer.** It removes the flicker under the
+  system style, but under a VCL style the style hooks and the composited
+  windows invalidate each other without end: the process stays busy while idle
+  and every pane lags by hundreds of milliseconds. Set on the whole window it
+  also slows the design surface down, and the designed controls, which come
+  from the user's form and its packages, would paint in a mode they were not
+  written for.
+- **The panes lie above the design surface, and the messages pane above the
+  other two.** A resize moves sibling windows one at a time; where a moved
+  window overlaps a sibling not yet moved, the one higher in the z-order shows.
+  The side panes move into the surface's area and the messages pane into all
+  three, so each has to lie above what it moves into.
 - **A comment that outlives its mechanism is worse than none.** The three found
   in the last audit each sat on the exact function a reader would go to first:
   one explaining a chrome detach that had become a sink, one describing a journal

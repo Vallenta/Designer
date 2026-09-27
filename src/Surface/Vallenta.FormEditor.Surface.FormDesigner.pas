@@ -3483,7 +3483,7 @@ end;
 
 function TFormDesigner.NeighbourRects(AExcludeMoving: Boolean): TArray<TRect>;
 var
-  Rects: TArray<TRect>;
+  Rects: TList<TRect>;
 
   function Excluded(AControl: TControl): Boolean;
   begin
@@ -3505,17 +3505,21 @@ var
       if not BelongsToDocument(Control) or Excluded(Control) or
         (not Control.Visible and (csNoDesignVisible in Control.ControlStyle)) then
         Continue;
-      Rects := Rects + [RootSpaceBounds(Control)];
+      Rects.Add(RootSpaceBounds(Control));
       if Control is TWinControl then
         Collect(TWinControl(Control));
     end;
   end;
 
 begin
-  Rects := nil;
-  if RootControl <> nil then
-    Collect(RootControl);
-  Result := Rects;
+  Rects := TList<TRect>.Create;
+  try
+    if RootControl <> nil then
+      Collect(RootControl);
+    Result := Rects.ToArray;
+  finally
+    Rects.Free;
+  end;
 end;
 
 function TFormDesigner.PrimaryGuideControl: TControl;

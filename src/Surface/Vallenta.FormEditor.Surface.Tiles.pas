@@ -13,8 +13,8 @@ unit Vallenta.FormEditor.Surface.Tiles;
 //
 // The caption font is set to fqNonAntialiased because TTileLayer derives its
 // window region from the non-key pixels of this drawing. Brush, pen and font
-// on ACanvas are saved and restored by PaintDesignBackground and PaintTiles,
-// not by TilePaintBounds.
+// on ACanvas are saved and restored by PaintTiles, not by TilePaintBounds;
+// PaintDesignBackground draws with brushes of its own and changes none of them.
 
 interface
 
@@ -60,8 +60,9 @@ function TilePaintBounds(ACanvas: TCanvas; AComponent: TComponent): TRect;
 // order PaintTiles draws them in.
 function TileAt(ARoot: TComponent; const APoint: TPoint): TComponent;
 
-// Fills AArea with AColor and sets a grid dot every AGridSize pixels; an
-// AGridSize below 1 draws the fill only.
+// Fills AArea with AColor and a grid dot every AGridSize pixels from
+// AArea.TopLeft, in one GDI fill; an AGridSize below 1 draws the fill only.
+// Leaves the pens, brushes, fonts and brush origin of ACanvas as they were.
 procedure PaintDesignBackground(ACanvas: TCanvas; const AArea: TRect;
   AColor: TColor; AGridSize: Integer);
 
@@ -125,33 +126,69 @@ begin
   ACanvas.Font.Quality := FontQuality;
 end;
 
+// The AGridSize square the grid's pattern brush repeats: AColor with the dot
+// on its top-left pixel.
+function CreateGridTile(AColor: TColor; AGridSize: Integer): Vcl.Graphics.TBitmap;
+begin
+  Result := Vcl.Graphics.TBitmap.Create;
+  try
+    Result.PixelFormat := pf24bit;
+    Result.SetSize(AGridSize, AGridSize);
+    Result.Canvas.Brush.Color := AColor;
+    Result.Canvas.FillRect(Rect(0, 0, AGridSize, AGridSize));
+    Result.Canvas.Pixels[0, 0] := GridDotColor;
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
 procedure PaintDesignBackground(ACanvas: TCanvas; const AArea: TRect;
   AColor: TColor; AGridSize: Integer);
+
+  function Remainder(AValue: Integer): Integer;
+  begin
+    Result := ((AValue mod AGridSize) + AGridSize) mod AGridSize;
+  end;
+
 var
-  X, Y, DotColor: Integer;
-  State: TCanvasState;
+  DC: HDC;
+  Tile: Vcl.Graphics.TBitmap;
+  Brush: HBRUSH;
+  Origin, Previous: TPoint;
 begin
-  State.Save(ACanvas);
+  DC := ACanvas.Handle;
+  if AGridSize < 1 then
+  begin
+    Brush := CreateSolidBrush(ColorToRGB(AColor));
+    try
+      Winapi.Windows.FillRect(DC, AArea, Brush);
+    finally
+      DeleteObject(Brush);
+    end;
+    Exit;
+  end;
+  Tile := CreateGridTile(AColor, AGridSize);
   try
-    ACanvas.Brush.Color := AColor;
-    ACanvas.Brush.Style := bsSolid;
-    ACanvas.FillRect(AArea);
-    if AGridSize < 1 then
-      Exit;
-    DotColor := ColorToRGB(GridDotColor);
-    Y := AArea.Top;
-    while Y < AArea.Bottom do
-    begin
-      X := AArea.Left;
-      while X < AArea.Right do
-      begin
-        SetPixelV(ACanvas.Handle, X, Y, DotColor);
-        Inc(X, AGridSize);
+    Brush := CreatePatternBrush(Tile.Handle);
+    try
+      // The brush origin is in device units, and a WM_PRINTCLIENT caller shifts
+      // the logical origin: the dots stay on AArea.TopLeft only through LPtoDP.
+      Origin := AArea.TopLeft;
+      LPtoDP(DC, Origin, 1);
+      if not SetBrushOrgEx(DC, Remainder(Origin.X), Remainder(Origin.Y),
+        @Previous) then
+        Exit;
+      try
+        Winapi.Windows.FillRect(DC, AArea, Brush);
+      finally
+        SetBrushOrgEx(DC, Previous.X, Previous.Y, nil);
       end;
-      Inc(Y, AGridSize);
+    finally
+      DeleteObject(Brush);
     end;
   finally
-    State.Restore(ACanvas);
+    Tile.Free;
   end;
 end;
 

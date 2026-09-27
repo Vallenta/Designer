@@ -7,10 +7,11 @@
 unit Vallenta.FormEditor.Shell.Styles;
 
 // VCL style of the designer's own windows: the styles the installed release
-// ships, the choice kept in the settings of this release, and the switch
-// between them. The style is process-wide; a control in design mode is drawn
-// in the system style under every style, so a designed document keeps its
-// look. Main thread only.
+// ships, the choice kept in the settings of this release, the switch between
+// them, and KeepEraseOffScreen for a pane control that would otherwise show
+// its cleared background during a resize. The style is process-wide; a
+// control in design mode is drawn in the system style under every style, so a
+// designed document keeps its look. Main thread only.
 //
 // A switch while windows exist recreates every window handle, the designed
 // documents' included. A window re-applies state it holds in a handle when
@@ -19,6 +20,7 @@ unit Vallenta.FormEditor.Shell.Styles;
 interface
 
 uses
+  Vcl.Controls,
   Vallenta.FormEditor.Core.Log;
 
 type
@@ -90,10 +92,18 @@ procedure ApplyStartupStyle;
 // into ALog, and forgets the warnings.
 procedure ReportStartupStyle(ALog: TDesignLog);
 
+// Double-buffers AControl and drops the WM_ERASEBKGND the system sends it, so
+// neither the control nor its style hook clears it on screen before the
+// buffered paint replaces the content. For a control that paints its whole
+// client area; a PaintTo capture of it receives no erase either.
+procedure KeepEraseOffScreen(AControl: TWinControl);
+
 implementation
 
 uses
   Winapi.Windows,
+  Winapi.Messages,
+  System.Classes,
   System.SysUtils,
   System.IOUtils,
   System.Win.Registry,
@@ -346,6 +356,41 @@ begin
   StartupNotes := nil;
   ALog.AddFmt(lsInfo, 'the designer windows are drawn in the %s style',
     [ActiveStyleName]);
+end;
+
+type
+  // The window procedure KeepEraseOffScreen puts in front of one control;
+  // owned by that control, freed with it and never taken off.
+  TScreenEraseFilter = class(TComponent)
+  private
+    FDefault: TWndMethod;
+    procedure Filter(var Message: TMessage);
+  public
+    constructor Create(AControl: TWinControl); reintroduce;
+  end;
+
+constructor TScreenEraseFilter.Create(AControl: TWinControl);
+begin
+  inherited Create(AControl);
+  FDefault := AControl.WindowProc;
+  AControl.WindowProc := Filter;
+end;
+
+// The system sends the erase with lParam 0, and so does PaintTo. The buffered
+// paint passes its buffer's DC there and the style engine's parent-background
+// request passes 1; both have to arrive.
+procedure TScreenEraseFilter.Filter(var Message: TMessage);
+begin
+  if (Message.Msg = WM_ERASEBKGND) and (Message.LParam = 0) then
+    Message.Result := 1
+  else
+    FDefault(Message);
+end;
+
+procedure KeepEraseOffScreen(AControl: TWinControl);
+begin
+  AControl.DoubleBuffered := True;
+  TScreenEraseFilter.Create(AControl);
 end;
 
 end.

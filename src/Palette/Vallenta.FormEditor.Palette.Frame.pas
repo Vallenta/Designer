@@ -144,7 +144,8 @@ uses
   System.SysUtils,
   Vallenta.FormEditor.Core.Settings,
   Vallenta.FormEditor.Packages.Icons,
-  Vallenta.FormEditor.Streaming.RootClassifier;
+  Vallenta.FormEditor.Streaming.RootClassifier,
+  Vallenta.FormEditor.Shell.Styles;
 
 const
   // View indexes, texts, the settings subkey, and layout metrics in px.
@@ -166,6 +167,8 @@ const
 constructor TPaletteFrame.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
+  KeepEraseOffScreen(TitlePanel);
+  KeepEraseOffScreen(HeaderPanel);
   FModel := TPaletteModel.Create;
   // IconProviderOver returns the fallback unchanged while no package icons
   // have been harvested, so the packages must already be loaded here.
@@ -231,6 +234,7 @@ begin
     FCollapseAll.Left - 2 * HeaderMargin, HeaderControlHeight);
   FSearch.Anchors := [akLeft, akTop, akRight];
   FSearch.OnChange := SearchChanged;
+  KeepEraseOffScreen(FSearch);
 
   FSearchTimer := TTimer.Create(Self);
   FSearchTimer.Enabled := False;
@@ -262,6 +266,7 @@ begin
   FPages := TPageControl.Create(Self);
   FPages.Parent := Self;
   FPages.Align := alClient;
+  KeepEraseOffScreen(FPages);
   for I := AllView to FavouritesView do
   begin
     FViews[I].Buttons := NewView(ViewCaptions[I]);

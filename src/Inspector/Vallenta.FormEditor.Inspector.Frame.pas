@@ -116,12 +116,15 @@ uses
   System.TypInfo,
   Vallenta.FormEditor.Core.Log,
   Vallenta.FormEditor.Surface.Tiles,
-  Vallenta.FormEditor.Surface.Undo;
+  Vallenta.FormEditor.Surface.Undo,
+  Vallenta.FormEditor.Shell.Styles;
 
 constructor TInspectorFrame.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-  ComponentTree.DoubleBuffered := True;
+  KeepEraseOffScreen(HeaderPanel);
+  KeepEraseOffScreen(ComponentTree);
+  KeepEraseOffScreen(Tabs);
   FPropertyModel := TPropertyModel.Create;
   FEventModel := TPropertyModel.Create;
 

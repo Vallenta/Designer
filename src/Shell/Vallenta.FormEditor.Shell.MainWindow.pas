@@ -608,6 +608,12 @@ begin
   FMessages.Align := alClient;
   FMessages.Attach(FSessionLog, FLog);
 
+  // A resize moves sibling windows one at a time; where a moved window
+  // overlaps a sibling not yet moved, the one higher in the z-order shows. The
+  // side zones move into the surface's area, the messages zone into all three.
+  DesignSurfaceBox.SendToBack;
+  MessagesZone.BringToFront;
+
   // Never taken off: the box is freed with this form.
   FSurfaceBoxWindowProc := DesignSurfaceBox.WindowProc;
   DesignSurfaceBox.WindowProc := SurfaceBoxWindowProc;

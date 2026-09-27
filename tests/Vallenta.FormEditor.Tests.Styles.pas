@@ -7,9 +7,10 @@
 unit Vallenta.FormEditor.Tests.Styles;
 
 // Covers Shell.Styles: the styles ListStyles offers for a directory, the
-// choice TStyleChoiceStore keeps, and a style change under an open document,
+// choice TStyleChoiceStore keeps, a style change under an open document,
 // which recreates every window handle and must leave the document unmodified,
-// in the system style and saving the bytes it was opened from.
+// in the system style and saving the bytes it was opened from, and the erase
+// KeepEraseOffScreen keeps a style hook from painting on screen.
 //
 // The live cases show a window that never takes the activation and put the
 // system style back before they end. The store cases write below a Tests
@@ -21,8 +22,8 @@ uses
   DUnitX.TestFramework;
 
 type
-  // The styles a directory offers, the kept choice, and a style change under
-  // an open document.
+  // The styles a directory offers, the kept choice, a style change under an
+  // open document, and the erase KeepEraseOffScreen drops.
   [TestFixture]
   TStyleTests = class
   public
@@ -51,18 +52,28 @@ type
     [TestCase('Non-visual components from another style', 'nonvisual_on_form.dfm,Windows10.vsf')]
     procedure AStyleChangeLeavesAnOpenDocumentAsLoaded(const AFixture,
       AFromStyle: string);
+    // A list box under another style, whose style hook paints its background
+    // on WM_ERASEBKGND: the erase the system sends paints nothing once
+    // KeepEraseOffScreen is applied, while the erase into a paint buffer and
+    // the style engine's parent-background request still paint.
+    [Test]
+    procedure KeepEraseOffScreenDropsOnlyTheEraseOfTheWindow;
   end;
 
 implementation
 
 uses
   Winapi.Windows,
+  Winapi.Messages,
   System.SysUtils,
   System.Classes,
   System.IOUtils,
   System.Win.Registry,
+  System.UITypes,
   Vcl.Controls,
   Vcl.Forms,
+  Vcl.Graphics,
+  Vcl.StdCtrls,
   Vcl.Themes,
   Vallenta.FormEditor.Core.Log,
   Vallenta.FormEditor.Core.Settings,
@@ -411,6 +422,66 @@ begin
       'opened from: ' + Where);
   finally
     Session.Free;
+    ApplyStyle(InstalledStyles[0]);
+    Settle;
+  end;
+end;
+
+procedure TStyleTests.KeepEraseOffScreenDropsOnlyTheEraseOfTheWindow;
+const
+  Sentinel = clLime;
+var
+  Host: THostWindow;
+  Filtered, Plain: TListBox;
+  Buffer: Vcl.Graphics.TBitmap;
+
+  // Colour at 10, 10 of the Sentinel-filled buffer after AList received an
+  // erase with the buffer DC in wParam and ALParam.
+  function AfterErase(AList: TListBox; ALParam: LPARAM): TColor;
+  begin
+    Buffer.Canvas.Brush.Color := Sentinel;
+    Buffer.Canvas.FillRect(Rect(0, 0, Buffer.Width, Buffer.Height));
+    AList.Perform(WM_ERASEBKGND, WPARAM(Buffer.Canvas.Handle), ALParam);
+    GdiFlush;
+    Result := Buffer.Canvas.Pixels[10, 10];
+  end;
+
+begin
+  BeginDesignerSession;
+  ApplyStyle(InstalledStyle(DarkStyleFile));
+  Host := nil;
+  Buffer := Vcl.Graphics.TBitmap.Create;
+  try
+    Buffer.PixelFormat := pf32bit;
+    Buffer.SetSize(40, 30);
+    Host := THostWindow.CreateNew(nil);
+    Host.SetBounds(0, 0, 300, 200);
+    Filtered := TListBox.Create(Host);
+    Filtered.Parent := Host;
+    Filtered.SetBounds(0, 0, 100, 100);
+    KeepEraseOffScreen(Filtered);
+    Plain := TListBox.Create(Host);
+    Plain.Parent := Host;
+    Plain.SetBounds(120, 0, 100, 100);
+    Host.Visible := True;
+    SetWindowPos(Host.Handle, HWND_BOTTOM, 0, 0, 0, 0,
+      SWP_NOMOVE or SWP_NOSIZE or SWP_NOACTIVATE);
+    Settle;
+    Assert.IsTrue(Filtered.DoubleBuffered, 'the filtered list box paints ' +
+      'without a buffer');
+    Assert.AreNotEqual<TColor>(ColorToRGB(Sentinel), AfterErase(Plain, 0),
+      'the style hook painted nothing on the erase of the window, so the ' +
+      'case measures nothing');
+    Assert.AreEqual<TColor>(ColorToRGB(Sentinel), AfterErase(Filtered, 0),
+      'the erase of the window reached the style hook');
+    Assert.AreNotEqual<TColor>(ColorToRGB(Sentinel),
+      AfterErase(Filtered, LPARAM(Buffer.Canvas.Handle)),
+      'the erase into the paint buffer was dropped');
+    Assert.AreNotEqual<TColor>(ColorToRGB(Sentinel), AfterErase(Filtered, 1),
+      'the parent-background request of the style engine was dropped');
+  finally
+    Host.Free;
+    Buffer.Free;
     ApplyStyle(InstalledStyles[0]);
     Settle;
   end;
