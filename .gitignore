@@ -41,3 +41,4 @@ CLAUDE.md
 # Runtime artifacts the designer writes beside itself or into the working tree.
 *.log
 *.ini
+.vsdcache
