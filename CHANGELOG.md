@@ -6,6 +6,13 @@ All notable changes to **Vallenta Designer** will be documented in this file. Ve
 
 ### Added
 - **Window style** — a list at the right end of the alignment bar switches the designer's own windows to any VCL style the Delphi release ships, dark styles included, and keeps the choice for the next start.
+- **Menu designer** — a main menu opens the Menu Designer from its context menu and from its `Items` property in the object inspector.
+- **Menu designer, captions** — a key typed in the Menu Designer edits the item's caption in the object inspector, and Enter returns to the Menu Designer.
+- **Design surface, main menu** — a designed form shows its main menu as a menu bar below its caption.
+
+### Fixed
+- **Design surface, speed** — the design surface redraws at the speed of the form designer in the Delphi IDE.
+- **Main window, resize** — the panes beside the design surface keep their content while the window is resized.
 
 
 ## [0.8.1] - 2026-09-20
