@@ -261,6 +261,12 @@ type
     procedure HookHost;
     procedure UnhookHost;
     procedure HostWindowProc(var Message: TMessage);
+    // The window the surface box shows the document in: the host form of a
+    // form or a frame, the icon canvas of a data module; nil without one.
+    function SurfaceDocument: TControl;
+    // Sets the surface box's scroll range to the document and the margin
+    // around it.
+    procedure UpdateSurfaceRange;
     procedure UpdateActionStates;
     procedure DesignerContextMenu(Sender: TObject);
     procedure SurfaceVerbClicked(Sender: TObject);
@@ -272,7 +278,14 @@ type
     // Keeps the window placement across the recreation a style change makes:
     // the new window of a maximized form starts without its normal bounds.
     procedure WndProc(var Message: TMessage); override;
+    // Sets the surface box's scroll range again after a DPI change: the change
+    // scales the range, while the document keeps its size.
+    procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
   public
+    // Scrolls the surface box with the wheel over it, sideways with Shift
+    // held; the wheel elsewhere goes to the focused control. The box takes no
+    // wheel of its own, and the wheel of every control reaches this form.
+    procedure MouseWheelHandler(var Message: TMessage); override;
     // ASessionLog is the process-wide log shown in the messages pane beside
     // this window's own; it is stored before the panes are built.
     constructor CreateFor(AOwner: TComponent; ASessionLog: TDesignLog);
@@ -617,6 +630,9 @@ begin
   // Never taken off: the box is freed with this form.
   FSurfaceBoxWindowProc := DesignSurfaceBox.WindowProc;
   DesignSurfaceBox.WindowProc := SurfaceBoxWindowProc;
+  // A computed range counts only visible children, and a designed form keeps
+  // the False its file carries in Visible; UpdateSurfaceRange sets the range.
+  DesignSurfaceBox.AutoScroll := False;
 end;
 
 function TMainDesignerForm.CurrentLayout: TDesignerLayout;
@@ -759,6 +775,7 @@ begin
   FVersion := 0;
   FKeptVersion := NothingKept;
   FSettled := False;
+  UpdateSurfaceRange;
 end;
 
 procedure TMainDesignerForm.PresentDocument(const AState: TLoadedFormState);
@@ -778,6 +795,7 @@ begin
   end;
   HookHost;
   RenewInputMapping;
+  UpdateSurfaceRange;
 end;
 
 // The VCL style frames the host with a window region, and Windows routes
@@ -857,10 +875,79 @@ end;
 procedure TMainDesignerForm.HostWindowProc(var Message: TMessage);
 begin
   FHostWindowProc(Message);
+  if (Message.Msg = WM_WINDOWPOSCHANGED) and
+     ((TWMWindowPosChanged(Message).WindowPos^.flags and SWP_NOSIZE) = 0) then
+    UpdateSurfaceRange;
   if (Message.Msg = WM_WINDOWPOSCHANGED) and HandleAllocated and
      IsWindowVisible(Handle) and
      ((TWMWindowPosChanged(Message).WindowPos^.flags and SWP_NOMOVE) = 0) then
     RenewInputMapping;
+end;
+
+function TMainDesignerForm.SurfaceDocument: TControl;
+begin
+  if FIconSurface <> nil then
+    Result := FIconSurface
+  else
+    Result := FDocument.HostForm;
+end;
+
+// The bounds are read as BoundsRect: the Left and Top of a designed form
+// report the position its file stores, not the one in the box.
+procedure TMainDesignerForm.UpdateSurfaceRange;
+var
+  Document: TControl;
+  Extent: TRect;
+begin
+  Document := SurfaceDocument;
+  if Document = nil then
+  begin
+    DesignSurfaceBox.HorzScrollBar.Range := 0;
+    DesignSurfaceBox.VertScrollBar.Range := 0;
+    Exit;
+  end;
+  Extent := Document.BoundsRect;
+  DesignSurfaceBox.HorzScrollBar.Range := DesignSurfaceBox.HorzScrollBar.Position +
+    Extent.Right + SurfaceMargin;
+  DesignSurfaceBox.VertScrollBar.Range := DesignSurfaceBox.VertScrollBar.Position +
+    Extent.Bottom + SurfaceMargin;
+end;
+
+procedure TMainDesignerForm.ChangeScale(M, D: Integer; isDpiChange: Boolean);
+begin
+  inherited ChangeScale(M, D, isDpiChange);
+  UpdateSurfaceRange;
+end;
+
+procedure TMainDesignerForm.MouseWheelHandler(var Message: TMessage);
+var
+  Box: TRect;
+  Bar: TControlScrollBar;
+  Lines, Step: Integer;
+begin
+  if (Message.Msg <> WM_MOUSEWHEEL) or not DesignSurfaceBox.HandleAllocated or
+     not GetWindowRect(DesignSurfaceBox.Handle, Box) or
+     not Box.Contains(SmallPointToPoint(TWMMouseWheel(Message).Pos)) then
+  begin
+    inherited MouseWheelHandler(Message);
+    Exit;
+  end;
+  if GetKeyState(VK_SHIFT) < 0 then
+    Bar := DesignSurfaceBox.HorzScrollBar
+  else
+    Bar := DesignSurfaceBox.VertScrollBar;
+  if not SystemParametersInfo(SPI_GETWHEELSCROLLLINES, 0, @Lines, 0) then
+    Lines := 3;
+  // WHEEL_PAGESCROLL reads as -1: a notch scrolls a page.
+  if Lines >= 0 then
+    Step := Lines * Bar.Increment
+  else if Bar = DesignSurfaceBox.VertScrollBar then
+    Step := DesignSurfaceBox.ClientHeight
+  else
+    Step := DesignSurfaceBox.ClientWidth;
+  Bar.Position := Bar.Position - MulDiv(TWMMouseWheel(Message).WheelDelta, Step,
+    WHEEL_DELTA);
+  Message.Result := 1;
 end;
 
 procedure TMainDesignerForm.BuildDocument(ALoader: TFormLoader);
