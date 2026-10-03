@@ -11,9 +11,10 @@ unit Vallenta.FormEditor.Packages.PeImage;
 // of a module already mapped in this process. No shared state is held, so
 // any function may be called from any thread.
 //
-// The mapped-module functions read the data directory at its PE32 offset and
-// are correct only in a 32-bit process. Returned addresses point into the
-// mapped image and are valid only while AModule stays loaded.
+// A file on disk is memory-mapped for one call, because its tables are read a
+// few bytes at a time. The mapped-module functions read the data directory at
+// its PE32 offset and are correct only in a 32-bit process. Returned addresses
+// point into the mapped image and are valid only while AModule stays loaded.
 
 interface
 
@@ -38,12 +39,12 @@ type
 function ImageMachineType(const APath: string): Word;
 
 // Module names from the import table of the image at APath, with the letter
-// case the file stores. Raises EPeImageError when the file is not a readable
+// case stored in the file. Raises EPeImageError when the file is not a readable
 // PE image.
 function ImportedModuleNames(const APath: string): TArray<string>;
 
-// Names the image at APath imports from the module AModule, compared to the
-// import table's module names case-insensitively, in import-table order. An
+// Names imported by the image at APath from the module AModule, in
+// import-table order; AModule is compared case-insensitively. An
 // import by ordinal carries no name and is omitted; an image that does not
 // import AModule yields an empty array. Raises EPeImageError when the file
 // is not a readable PE image.
@@ -82,10 +83,14 @@ const
   MaxNameLength = 512;
 
 type
-  // Reads the headers, sections and data directories of a PE file on disk.
+  // Reads the headers, sections and data directories of a PE file on disk,
+  // mapped read-only into memory.
   TPeFile = class
   private
     FStream: TFileStream;
+    FMapping: THandle;
+    FView: PByte;
+    FSize: Int64;
     FMachine: Word;
     // Import thunk width and its ordinal flag: 4 bytes and bit 31 for PE32,
     // 8 bytes and bit 63 for PE32+.
@@ -93,6 +98,8 @@ type
     FOrdinalFlag: UInt64;
     FSections: TArray<TImageSectionHeader>;
     FDirectories: TArray<TImageDataDirectory>;
+    // Address of AOffset in the mapped file; the caller checks the bounds.
+    function At(AOffset: Int64): PByte;
     procedure ReadAt(AOffset: Int64; var ABuffer; ASize: Integer);
     function ReadNameAt(AOffset: Int64): string;
     procedure ReadHeaders;
@@ -117,36 +124,57 @@ begin
     on E: EStreamError do
       raise EPeImageError.Create(E.Message);
   end;
+  FSize := FStream.Size;
+  // An empty file cannot be mapped; ReadAt refuses it by its size instead.
+  if FSize > 0 then
+  begin
+    FMapping := CreateFileMapping(FStream.Handle, nil, PAGE_READONLY, 0, 0, nil);
+    if FMapping = 0 then
+      raise EPeImageError.Create(SysErrorMessage(GetLastError));
+    FView := MapViewOfFile(FMapping, FILE_MAP_READ, 0, 0, 0);
+    if FView = nil then
+      raise EPeImageError.Create(SysErrorMessage(GetLastError));
+  end;
   ReadHeaders;
 end;
 
 destructor TPeFile.Destroy;
 begin
+  if FView <> nil then
+    UnmapViewOfFile(FView);
+  if FMapping <> 0 then
+    CloseHandle(FMapping);
   FStream.Free;
   inherited Destroy;
 end;
 
 procedure TPeFile.ReadAt(AOffset: Int64; var ABuffer; ASize: Integer);
 begin
-  if (AOffset < 0) or (AOffset + ASize > FStream.Size) then
+  if (AOffset < 0) or (AOffset + ASize > FSize) then
     raise EPeImageError.Create('it ends before its headers do');
-  FStream.Position := AOffset;
-  FStream.ReadBuffer(ABuffer, ASize);
+  Move(At(AOffset)^, ABuffer, ASize);
+end;
+
+function TPeFile.At(AOffset: Int64): PByte;
+begin
+  Result := FView + NativeInt(AOffset);
 end;
 
 function TPeFile.ReadNameAt(AOffset: Int64): string;
 var
-  Character: AnsiChar;
+  Count: Integer;
   Name: AnsiString;
 begin
-  Name := '';
-  while Length(Name) < MaxNameLength do
+  Count := 0;
+  while Count < MaxNameLength do
   begin
-    ReadAt(AOffset + Length(Name), Character, SizeOf(Character));
-    if Character = #0 then
+    if (AOffset < 0) or (AOffset + Count >= FSize) then
+      raise EPeImageError.Create('it ends before its headers do');
+    if At(AOffset + Count)^ = 0 then
       Break;
-    Name := Name + Character;
+    Inc(Count);
   end;
+  SetString(Name, PAnsiChar(At(AOffset)), Count);
   Result := string(Name);
 end;
 
