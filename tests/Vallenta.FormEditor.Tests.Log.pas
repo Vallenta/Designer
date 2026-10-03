@@ -6,9 +6,11 @@
 
 unit Vallenta.FormEditor.Tests.Log;
 
-// Suite for TDesignLog: the entry cap, the notification a drop raises, and
-// the log state an entry listener reads. Every test fills the log with lsInfo
-// entries, the only severity Trim drops.
+// Suite for TDesignLog: the entry limit, the trim notification, and the log
+// state seen by an entry listener. The limit cases add lsInfo entries, the
+// only severity dropped by Trim. Also covers the messages pane: after a burst
+// of entries it selects the last row once, when the burst ends. That case
+// shows a form on the desktop and frees it again.
 
 interface
 
@@ -17,7 +19,8 @@ uses
   Vallenta.FormEditor.Core.Log;
 
 type
-  // Covers TDesignLog entry retention and its two listener kinds.
+  // Covers TDesignLog entry retention, its two listener kinds, and the
+  // messages pane following a log.
   [TestFixture]
   TLogTests = class
   private
@@ -32,20 +35,33 @@ type
     procedure ALogWithNoLimitKeepsEverything;
     [Test]
     procedure ALimitKeepsTheNewestAndDropsTheOldest;
+    // A log filled to exactly Limit raises no trim notification; each append
+    // beyond it drops one entry and raises one notification.
     [Test]
     procedure LettingGoOfTheOldestIsAnnouncedOnce;
+    // Assigning a lower Limit trims immediately, and the whole trim raises one
+    // notification rather than one per dropped entry.
     [Test]
     procedure LoweringTheLimitTakesEffectAtOnce;
+    // Add applies the drop before notifying entry listeners.
     [Test]
     procedure WhatAListenerReadsIsWhatTheLogHolds;
+    // Selecting the row of every entry repaints a shown list once per entry;
+    // a burst of a few thousand entries then takes seconds.
+    [Test]
+    procedure AShownPaneSelectsTheLastRowOnceABurstIsOver;
   end;
 
 implementation
 
 uses
-  System.SysUtils;
+  System.SysUtils,
+  Vcl.Controls,
+  Vcl.Forms,
+  Vallenta.FormEditor.Shell.MessagesFrame;
 
 const
+  // Entry limit set by the limit cases.
   Limit = 10;
 
 procedure TLogTests.CountTrim(Sender: TObject);
@@ -102,8 +118,6 @@ begin
   end;
 end;
 
-// A log filled to exactly Limit raises no trim notification; each append
-// beyond it drops one entry and raises one notification.
 procedure TLogTests.LettingGoOfTheOldestIsAnnouncedOnce;
 var
   Log: TDesignLog;
@@ -123,8 +137,6 @@ begin
   end;
 end;
 
-// Assigning a lower Limit trims immediately, and the whole trim raises one
-// notification rather than one per dropped entry.
 procedure TLogTests.LoweringTheLimitTakesEffectAtOnce;
 var
   Log: TDesignLog;
@@ -143,7 +155,6 @@ begin
   end;
 end;
 
-// Add applies the drop before notifying entry listeners.
 procedure TLogTests.WhatAListenerReadsIsWhatTheLogHolds;
 var
   Log: TDesignLog;
@@ -162,6 +173,45 @@ begin
       'a listener did not find the entry it had just been told about last');
   finally
     Log.Free;
+  end;
+end;
+
+procedure TLogTests.AShownPaneSelectsTheLastRowOnceABurstIsOver;
+const
+  Burst = 200;
+var
+  Host: TForm;
+  Pane: TMessagesFrame;
+  Log: TDesignLog;
+  I: Integer;
+begin
+  Host := TForm.Create(nil);
+  Log := TDesignLog.Create;
+  Pane := nil;
+  try
+    Pane := TMessagesFrame.Create(Host);
+    Pane.Parent := Host;
+    Pane.Align := alClient;
+    Host.Show;
+    Pane.Attach(nil, Log);
+    for I := 1 to Burst do
+      Log.AddFmt(lsWarn, 'entry %d', [I]);
+    Assert.AreEqual(Burst, Pane.RowCount);
+    Assert.AreEqual(Burst, Pane.LogList.Count,
+      'the list box does not show every row');
+    Assert.AreEqual('entry ' + IntToStr(Burst), Pane.RowText(Burst - 1));
+    Assert.AreNotEqual(Burst - 1, Pane.LogList.ItemIndex,
+      'the last row was selected while the burst was still running');
+    Application.ProcessMessages;
+    Assert.AreEqual(Burst - 1, Pane.LogList.ItemIndex,
+      'the last row was not selected once the burst was over');
+  finally
+    // The pane is a listener of the log and is detached before the log is
+    // freed.
+    if Pane <> nil then
+      Pane.Attach(nil, nil);
+    Log.Free;
+    Host.Free;
   end;
 end;
 
