@@ -112,6 +112,7 @@ implementation
 {$R *.dfm}
 
 uses
+  Winapi.CommCtrl,
   System.SysUtils,
   System.TypInfo,
   Vallenta.FormEditor.Core.Log,
@@ -217,8 +218,8 @@ var
   Instances: TArray<TPersistent>;
   Piece: TPreservedPiece;
 begin
-  // The rebuild frees every row; each grid holds a pointer to the row it is
-  // editing.
+  // The rebuild frees every row; each grid holds a pointer to the row being
+  // edited.
   FPropertyGrid.CancelEdit;
   FEventGrid.CancelEdit;
   FPropertyGrid.ReadOnly := (FDesigner <> nil) and FDesigner.Guarded;
@@ -454,6 +455,26 @@ begin
   end;
 end;
 
+// Shows the subtree at ANode fully expanded by setting the expanded state of
+// each node with children directly. Expanding node by node sends the tree
+// control's expansion notifications for every node, which takes most of a
+// second for a form of a few hundred components.
+procedure ShowExpanded(ATree: TTreeView; ANode: TTreeNode);
+var
+  Child: TTreeNode;
+begin
+  if not ANode.HasChildren then
+    Exit;
+  TreeView_SetItemState(ATree.Handle, ANode.ItemId, TVIS_EXPANDED,
+    TVIS_EXPANDED);
+  Child := ANode.getFirstChild;
+  while Child <> nil do
+  begin
+    ShowExpanded(ATree, Child);
+    Child := Child.getNextSibling;
+  end;
+end;
+
 procedure TInspectorFrame.RebuildTree;
 var
   RootNode: TTreeNode;
@@ -480,7 +501,7 @@ begin
             AddControlNode(RootNode, Container.Controls[I]);
       end;
       AddNonVisualNodes(RootNode);
-      RootNode.Expand(True);
+      ShowExpanded(ComponentTree, RootNode);
     finally
       ComponentTree.Items.EndUpdate;
     end;
@@ -508,8 +529,8 @@ var
 begin
   if FDesigner = nil then
     Exit;
-  // SelectedPersistents is ordered primary first, and that is the entry
-  // TTreeView.Select focuses; the rest are highlighted beside it.
+  // SelectedPersistents is ordered primary first, and TTreeView.Select focuses
+  // the first entry; the rest are highlighted beside it.
   for Instance in FDesigner.SelectedPersistents do
   begin
     Node := FindNodeFor(Instance);
@@ -518,8 +539,8 @@ begin
   end;
   if Length(Nodes) = 0 then
   begin
-    // A sub-object a property editor selected has no node of its own; the
-    // component holding it is what the tree can show.
+    // A sub-object selected by a property editor has no node of its own; the
+    // node of the component holding it is selected instead.
     Node := FindNodeFor(FDesigner.Selected);
     if Node = nil then
       Exit;
@@ -543,8 +564,8 @@ begin
   if FUpdating or (FDesigner = nil) or (Node = nil) or
     (ComponentTree.SelectionCount = 0) then
     Exit;
-  // The tree keeps the node a click made current first; the designer takes it
-  // last, which is where SelectMany reads the primary from.
+  // The tree lists the node made current by a click first; SelectMany reads
+  // the primary from the last entry, so that node is passed last.
   Primary := TPersistent(ComponentTree.Selections[0].Data);
   for I := 1 to Integer(ComponentTree.SelectionCount) - 1 do
   begin
@@ -563,8 +584,8 @@ begin
   finally
     FUpdating := False;
   end;
-  // What cannot be part of a group is refused, the root among it, so the tree
-  // is brought back to the selection that was accepted.
+  // The designer refuses what cannot be part of a group, the root included,
+  // so the tree is synchronized back to the accepted selection.
   SyncTreeToSelection;
 end;
 
