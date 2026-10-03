@@ -191,13 +191,14 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | `Core.Coupling` | `ICodeCoupling` and `TDocumentCoupling`: the per-document source coupling. Field emission at a settle point, the ledger resume that re-sends fields and the history's handlers at each reattach, `listMethods`, `ensureEventHandler`, `gotoHandler` and `renameComponent`, the event signature read from RTTI, the foreground grant, and `TRenameRegister` |
 | `Core.FieldLedger` | The diff between the fields a document designs and the fields its unit has been told about. Entries move only on acknowledgement, so an unconfirmed change is reported again |
 | `Core.Recovery` | The recovery journal: one folder per designer process, a lock file held open for its lifetime, a copy and a note per document, and the discovery that distinguishes an ended session from a running one |
+| `Core.RaisedDialogs` | A bracket during which every dialog box activated on the calling thread is made topmost, without taking the focus, and reported once. The document window reads each document inside such a bracket |
 
 ### `Streaming` — the `.dfm` format and the load and save pipelines
 
 | Unit | Contents |
 |---|---|
 | `Streaming.TextSpans` | The span scanner over the text form: blocks, property lines, and the splice that puts pieces back. `TDfmFragment` reads the other shape the same scanner sees, a list of top-level blocks with no root above them |
-| `Streaming.RootClassifier` | What a form file's root block declares — keyword, class and object name — the three-stage decision of which kind of root it is, and `TDfmClassIndex`, which indexes a directory set's form files by root class and object name |
+| `Streaming.RootClassifier` | The root block declaration of a form file — keyword, class and object name — and the three-stage decision of its root kind; the ancestor and the units in scope read from a class declaration in a unit; and `TDfmClassIndex`, which finds form files by root class, keeping every file declaring one, and by object name, reading the files named after a unit in scope first and caching every header read for the lifetime of the process |
 | `Streaming.EventNames` | Event-name preservation: `TEventNameMap`, `TEventAnchor`, `TDesignReader`, the interning of a handler wired in the inspector, and the rename that moves an interned name |
 | `Streaming.Preserved` | Text a load could not turn into components, the placeholder controls that display it, and the names it reserves |
 | `Streaming.Frames` | Which classes are frames, the file each is declared in, the live instances, and the untouched instance each class is measured against |
@@ -210,7 +211,7 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 
 | Unit | Contents |
 |---|---|
-| `Packages.PeImage` | The PE image format: machine type, imported module names and the names imported from one module from a file, the export table from a module mapped in this process |
+| `Packages.PeImage` | The PE image format: machine type, imported module names and the names imported from one module from a file, read from a memory mapping of it, and the export table from a module mapped in this process |
 | `Packages.Stacks` | Names code addresses for a package failure diagnosed from a log rather than a debugger: the RTL stack-info hooks, and each address reported as its module, the offset into it and the exported symbol below it. Win32 only, and not thread-safe |
 | `Packages.Discovery` | The IDE's own package lists, its path variables resolved, and the default allow and exclusion lists |
 | `Packages.Preflight` | The checks that reject a package before it is loaded: missing, wrong architecture, another release, an IDE tool window inside, already in the process |
@@ -249,7 +250,7 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | `Palette.Frame` + `.dfm` | The palette pane: categories, the search box and its filter, the favourites tab, creation-mode arming, double-click placement |
 | `Inspector.PropertyModel` | The row model behind the property grid, with two sources — runtime type information, and the property editors of the loaded packages — typed apply, expansion, and per-row degradation |
 | `Inspector.Grid` | The two-column grid with overlay editors, and the ellipsis button that opens a property's own dialog |
-| `Inspector.Frame` + `.dfm` | Component tree, Properties and Events grids, two-way selection sync |
+| `Inspector.Frame` + `.dfm` | Component tree, Properties and Events grids, two-way selection sync. The tree is shown fully expanded by setting each parent's expanded state rather than expanding node by node |
 
 ### `Shell` — the core and the windows it creates
 
@@ -257,7 +258,7 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 |---|---|
 | `Shell.Core` | `TDesignerCore`, the hidden controller form: the packages, the design-time layer, the session log, the session registry, the window registry, the tray icon and its menu, the pipe server, the journal timer, the recovery offer, and the shutdown sweep. `OpenDocument` is the single entry point, for the command line, the pipe and a recovery alike. It also serves the sessions: the request handlers, the four document events (with `opened` replayed at attach for documents opened while nothing was listening), the per-document coupling refresh, and the orphan check |
 | `Shell.MainWindow` + `.dfm` | `TMainDesignerForm`, the window of one open document: zones, splitters, menu, actions, close flow, document lifetime, kind-aware presentation, the undo history and its restores, the read-only banner, and the document's coupling — history callbacks, the rename register, the settle point, and the handler roster a resume replays |
-| `Shell.MessagesFrame` + `.dfm` | The severity-colored message list over two logs: the session log first and marked as such, then this document's, so a window opened later still shows what the packages reported at startup |
+| `Shell.MessagesFrame` + `.dfm` | The severity-colored message list over two logs: the session log first and marked as such, then this document's, so a window opened later still shows what the packages reported at startup. The rows are held by the frame and the list box is virtual, so a rebuild sends one message regardless of the session log's size, and the last row is selected once per burst of entries rather than per entry |
 | `Shell.RecoveryDialog` | The documents an earlier session left unsaved, offered one row at a time. Built in code, and the one dialog here that is not OK/Cancel |
 | `Shell.AlignDialogs` | The align, same-size, tab-order and creation-order dialogs, built in code rather than from form resources |
 | `Shell.AlignPalette` | `TAlignPalette`, the alignment bar above the design surface: one drawn button opening a menu of the ten align actions, each entry carrying a glyph and a caption, and at its right end a combo box of the installed VCL styles. The glyphs are drawn from geometry into an image list rather than loaded from bitmaps, so they stay sharp at any DPI and the program ships no artwork for them. The button is drawn rather than being a `TButton`, which would take the keyboard focus off the design surface; the combo box changes the style only through its open list and hands the focus back when the list closes. The strip holds no designer reference; a chosen entry raises `OnAlign`, a chosen style `OnStyleChosen`, and the window carries out both |
@@ -280,14 +281,16 @@ is implicitly in scope. Every `uses` clause therefore names units in full.
 | `Tests.Recovery` | Journal, discovery, recover, discard, and that a recovered document saves the bytes the ended session would have |
 | `Tests.SettledImage` | A change reported without warning becoming one step, ten becoming ten, the frame drag counting as a gesture, and the designer chrome, guide lines included, staying out of what is written |
 | `Tests.SourceFiles` | Which other form files a document is built from, and why each was read |
-| `Tests.Log` | The session log's ring buffer and the order a drop is reported in |
+| `Tests.Log` | The session log's ring buffer and the order in which a drop is reported, and a shown messages pane listing every row and selecting the last one once per burst of entries |
+| `Tests.RaisedDialogs` | A message box shown inside a bracket made topmost and reported, one shown outside left unchanged, nested brackets reporting to the innermost, and the hook removed with the outermost. Shows real message boxes, closed by a timer on the same thread |
 | `Tests.Layout` | The layout store: what a next start reads back, the rescale across a DPI change, and what a damaged value or DPI is refused with |
 | `Tests.Styles` | The styles a directory offers — the system style first, then name order, with a file that holds no style or repeats a name left out — the choice the store keeps, and a style change under an open document in a shown window: every window recreated, the designed controls still in the system style, and the document unmodified and saving the bytes it was opened from |
 | `Tests.Clipboard` | Copy, cut and paste: the fragment a selection writes, the names a paste counts up, the references that follow a rename and the ones that do not, the handler rule and its refusal on an uncoupled document, and a block split over collections, strings and binary data |
 | `Tests.ArgumentFile` | `ExpandConfigFileArgument`: one argument per non-empty line, file arguments appended after those already present, the option and any nested one removed, and how an unreadable file is reported |
 | `Tests.SearchPath` | `SplitSearchPath`, `TakeSearchPathArgument`, the per-document override, an ancestor chain resolved through it, and `DfmFileRootHeader` on a binary resource `.dfm` and on ANSI text bytes |
-| `Tests.LoadedClasses` | Ancestor names resolved from the classes in the process: `LoadedClass`, `LoadedAncestorClass`, and `TAncestorChain` over form files with no companion unit |
-| `Tests.LinkedModules` | A reference into another module: resolved through the class index over the document's directory and the search path, written back qualified, and left unchanged when no form file declares the module |
+| `Tests.LoadedClasses` | Ancestor names resolved from the classes in the process: `LoadedClass`, `LoadedAncestorClass`, and `TAncestorChain` over form files with no companion unit, including the choice among several declaring files by the unit of a loaded class |
+| `Tests.LinkedModules` | A reference into another module: resolved through the class index over the document's directory and the search path, written back qualified, left unchanged when no form file declares the module, and resolved when the module is built on a module copied without its unit |
+| `Tests.ClassIndex` | Resolution of a class name to a form file and a unit when the search path holds several candidates: selection by the units in scope, a unit read from the search path when none is beside the form file, a plain ancestor without any unit classified from its own properties, `ReadUnitDeclaration` past comments, directives, strings and `in` paths, a directory listed twice kept once, a header read again after its file changed, a choice decided by no unit reported once, and a module's file selected by a unit in scope |
 | `Tests.ZOrder` | `RestackSelection` and `CanRestackSelection`: to front, to back, a group step, a step that moves nothing, a guarded document, the root, and undo and redo. Z-order is an index among siblings that no property records, so every case reads a saved file |
 | `Tests.Align` | `AlignSelection`, `SizeSelection` and the predicates: each action against the extent the selection spans and not against the control selected last, what an `Align` property and a foreign container make the command refuse, the aligned control as a fixed edge of the extent, a run that writes nothing, a guarded document, one undo step for the group, the same rule under a nudge, what each action demands of the selection, and that a new selection and the guard both say the commands changed |
 | `Tests.Guides` | The segments `AlignmentGuides` computes, the offsets `PullToGuides` reports, the keys that arm the guide lines through `IsDesignMsg`, and the edge of another control, in any container, a move drops on against the grid. Moves the system cursor, so an interactive desktop session is required |
@@ -1249,14 +1252,20 @@ data module, a popup menu on another form. The file writes such a reference
 qualified — `XModData.PopupMenuShared` — and the reader can resolve it only if
 the other module is loaded too.
 
-**So it is loaded.** A dotted name is split at the dot and the part before it is
-searched for through the same class index the frames and ancestors use, over the
-document's own directory and the search path. The file found is streamed into a
-document of its own (`TLinkedModule`) and kept **for its components only**: never
-shown, never designed, never saved, and freed with the load. Its event map
-interns the handler names those components hold markers for and therefore has to
-outlive them. A module reference that runs in a circle, or deeper than the
-ancestor depth limit, is refused and kept as written rather than followed.
+**The other module is therefore loaded.** A dotted name is split at the dot and
+the part before it is searched for through the class index also used for frames
+and ancestors, over the document's own directory and the search path, by the
+object name of the file's root. The files named after a unit used by the
+document's unit, or by the unit of one of its ancestor forms, are read first:
+the reference is written by one of those forms, and its unit uses the module's
+unit. The file found is streamed into a document of its own (`TLinkedModule`)
+and kept **for its components only**: never shown, never designed, never saved,
+and freed with the load. Its event map interns the handler names referenced by
+the event markers of those components and therefore has to outlive them. The
+module's own load looks in the module's directory first, then in the document's
+directory and along the search path, each directory once. A module reference
+that runs in a circle, or deeper than the ancestor depth limit, is refused and
+kept as written rather than followed.
 
 **What still does not resolve is kept, exactly like an unread property.** After
 the load the reader is asked which references it never fixed up
@@ -1288,9 +1297,19 @@ make sense of either.
 **Which classes are frames is read off the text, not guessed.** The scanner
 reports which blocks carry the `inline` keyword, and only the classes named there
 are searched for. Anything else stays what it was: a class the designer does not
-know, kept verbatim. The file a class lives in is found by reading the root
-declaration of every form file beside the document and along the search path —
-only the header of each, so a directory of hundreds is inexpensive to index.
+know, kept verbatim. The file declaring a class is found through the root
+declarations of the form files beside the document and along the search path,
+the files named after a unit in scope of the form class's declaration first;
+where several files declare the class, the one named after such a unit is
+taken, as for an ancestor (see Forms Built On Other Forms).
+
+**Reading every form file is the exception.** A search path of 150 directories
+holds thousands of form files, and a lookup is repeated for every referenced
+module and for every undo. The index therefore lists the directories, reads the
+headers of the files named after a unit in scope, and reads every header only
+when those do not decide. A header once read is kept for the process and read
+again only when the listing reports a different size or write time for its
+file, so a file edited since is always read again.
 
 **Reading.** The reader queries before it builds, which is where the instance
 comes from: the frame's own file is streamed into a frame stub first, and the
@@ -1356,29 +1375,53 @@ may be a descendant in turn.
 the companion unit beside it, and the file that class lives in is found through
 the same class index the frames use, so the walk is: read the unit, take the
 ancestor class, find its file, repeat, and stop at the class a stub is built for
-(`TForm`, `TFrame`, `TDataModule`). The result is the ancestors' files with the
-base-most first. Cycles are refused, and so is a chain longer than
-`AncestorDepthLimit`, which is 8.
+(`TForm`, `TFrame`, `TDataModule`) or at a file whose root reads `object`. The
+result is the ancestors' files with the base-most first. Cycles are refused, and
+so is a chain longer than `AncestorDepthLimit`, which is 8.
 
-**A form file with no companion unit is not a dead end.** `Core.LoadedClasses`
-queries the classes present in this process — the design packages loaded this
-session among them — for the one the root declares, and reads what it descends
-from out of `ClassParent`. A form file names its own class and never its
-ancestor's, so this is the only way to follow the chain when there is no unit to
-read: a base form a package supplies is answered by the package. Lookup order is
-the streaming registry, then the qualified name built from the file's own name as
-a unit hint, then a one-time RTTI walk over the process behind a lock. Packages
-load before the first document and none afterwards, so one walk covers the
-session.
+**A plain root ends the chain.** A file whose root reads `object` holds the
+complete state of its class, so nothing further is streamed, and its base class
+decides only the root kind. The kind is taken from a loaded class, followed up
+its parents to the first stub base class, else from its unit; when
+neither names the base, the file's own properties decide, as they do for a
+document (see Root Kinds), and the log names the evidence used.
 
-A link that cannot be followed either way — no companion unit, no loaded class,
-no file declaring the ancestor — is a **refusal naming what is missing**, not a
+**A class name does not identify a file.** A search path of a hundred
+directories can hold two unrelated forms of one class name, and often a
+directory of form files copied for linking, without their units. The class index
+therefore keeps every file that declares a class, and a lookup takes the one
+named after the unit declaring the class: the units in scope of the declaration
+that names the class, the one listed last first — the compiler's resolution
+order — then the unit of a loaded class of that name. When no unit decides, the
+first file in walk order is taken, and only then is the duplicate reported: one
+line naming every file and the one taken, once per name and load. The file
+taken is logged with its full path, since two files of one name in different
+directories are otherwise indistinguishable.
+
+**A form file without a companion unit can still be resolved.**
+`Core.LoadedClasses` queries the classes present in this process — the design
+packages loaded this session among them — for the one the root declares, and
+reads its parent class from `ClassParent`. A form file names its own class and
+never its ancestor's, so this is the first way to follow the chain when no unit
+is beside the file: a base form supplied by a package is resolved through that
+package. Lookup order is the streaming registry, then the qualified name built
+from the file's own name as a unit hint, then a one-time RTTI walk over the
+process behind a lock. Packages load before the first document and none
+afterwards, so one walk covers the session. When no loaded class matches, the
+unit named like the file is searched for along the search path, as the compiler
+does, and read from there.
+
+A link that cannot be followed — an `inherited` root with an ancestor named by
+neither a loaded class nor a unit, or an ancestor declared by no file — is a
+**refusal naming what is missing**, with the file's full path, not a
 degradation: a document with no ancestor to build on is not something this
 designer can stand in for.
 
-**The kind is known rather than guessed.** The chain ends at a class whose kind
-is known outright, so a descendant never goes through the property sniff, which
-would be reading a block that holds only differences and may name no kind at all.
+**The kind is never read from differences.** The chain ends at a class whose
+kind is known outright or at a plain root, so a descendant's own file never goes
+through the property sniff, which would be reading a block that holds only
+differences and may name no kind at all. A plain root is a complete form, and it
+is sniffed only when nothing names what its class descends from.
 
 **Reading is one pass per file into the same stub**, base-most first: each pass
 finds the components the previous one created and changes them rather than
@@ -1867,6 +1910,9 @@ design package that only the IDE core creates, and such an expert creates its
 window in a unit initialization, so the load itself raises an access violation
 inside `designide<n>.bpl` and leaves a half-built window in the process. The
 verdict is read from the import table (`ImportedNames`) before anything runs.
+The file is mapped into memory for these reads, because the import table is
+read a few bytes at a time, and one system call per read adds seconds to the
+start-up.
 
 **A package's own dependencies come first** (`Packages.Dependencies`). What it
 imports is read out of its import table and loaded deepest first, searched for
@@ -2317,9 +2363,8 @@ Two files sit in the same directory with no expectation, because the matrix know
 only the fixtures listed above. `blank_form.dfm` is the empty canvas the manual
 palette pass places components on. `crossversion_newer_property.dfm` is a form
 written by a **newer** release than the one under test, held for opening by hand;
-no case names it. It declares `TForm1` as `basic_form.dfm` does, so every run
-reports that both declare the name and which one the class index kept. That line
-is expected output.
+no case names it. It declares `TForm1` as `basic_form.dfm` does; no lookup asks
+for that class, so nothing is reported about the two.
 
 The companion `.pas` files exist only for the classifier to read; they are never
 compiled. Copying a fixture *without* its companion is how the property-sniff
@@ -2406,6 +2451,33 @@ stage is exercised deliberately.
   callback is not an optimisation: without it the frame's entire contents land in
   the host's file as ordinary blocks, and the next load of that file has two
   copies of everything.
+- **The first file declaring a class is not the one to take.** Along a real
+  search path two applications' main forms share a class name, and a directory
+  of form files copied for linking repeats a project's files without their
+  units. Taking the first match streams the wrong ancestor under the right name:
+  the descendant's `inherited` blocks then find no component to change and are
+  kept verbatim, which looks like a damaged file rather than a wrong lookup, and
+  a copy without its unit refuses a load that its unit, elsewhere on the path,
+  would have allowed. Every lookup by class name goes through the units in
+  scope, and the log names form files by their full path.
+- **A search path holds thousands of form files, and one open runs several
+  loads.** Every module referenced by a document, and every undo, is a load of
+  its own. Reading every header for each of them takes seconds per open;
+  reporting every duplicate name at each read puts thousands of warnings into
+  the log, and a shown messages pane repaints for each. Lookups therefore read
+  the files named after a unit in scope first, headers are kept for the
+  process, a duplicate is reported only when a lookup has to choose by walk
+  order, and the pane selects its last row once per burst.
+- **A modal dialog shown by component code can block a load unnoticed.**
+  Reading a form runs the code of its components, and some of it reports a
+  problem with a modal message box — an ActiveX control failing to start, a
+  data component failing to connect. The designer usually runs in the
+  background, behind the editor that requested the form, and Windows lets a
+  background process neither activate a window nor bring one to the front: the
+  box opens behind the editor, has no taskbar button when a hidden window owns
+  it, and the load blocks until the editor's request times out. The document
+  window therefore reads a document inside a `Core.RaisedDialogs` bracket, which
+  makes such a box topmost and names it in the messages pane.
 - **Designer chrome must stay unowned.** Giving the handles an owner would put
   them into the saved file. They are also in their parent's tab list while
   attached, and `TabOrder` is the index in that list, which is why a save, an
