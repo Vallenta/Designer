@@ -66,8 +66,8 @@
         <Icon_MainIcon>resources\VSForm.ico</Icon_MainIcon>
         <UWP_DelphiLogo44>resources\Icons\VDesigner_44.png</UWP_DelphiLogo44>
         <UWP_DelphiLogo150>resources\Icons\VDesigner_150.png</UWP_DelphiLogo150>
-        <VerInfo_Keys>CompanyName=Vallenta Studio;FileDescription=Vallenta Designer - visual designer for dfm-form files;FileVersion=0.8.1.0;InternalName=VallentaDesigner;LegalCopyright=Copyright (c) 2026 Michael Stagge (Vallenta Studio);LegalTrademarks=;OriginalFilename=VallentaDesigner.exe;ProductName=Vallenta Designer;ProductVersion=0.8.1;Comments=Part of Vallenta Studio. MIT licensed - see the LICENSE file;License=MIT</VerInfo_Keys>
-        <VerInfo_Release>1</VerInfo_Release>
+        <VerInfo_Keys>CompanyName=Vallenta Studio;FileDescription=Vallenta Designer - visual designer for dfm-form files;FileVersion=0.8.2.0;InternalName=VallentaDesigner;LegalCopyright=Copyright (c) 2026 Michael Stagge (Vallenta Studio);LegalTrademarks=;OriginalFilename=VallentaDesigner.exe;ProductName=Vallenta Designer;ProductVersion=0.8.2;Comments=Part of Vallenta Studio. MIT licensed - see the LICENSE file;License=MIT</VerInfo_Keys>
+        <VerInfo_Release>2</VerInfo_Release>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1)'!=''">
         <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
@@ -81,8 +81,8 @@
         <BT_BuildType>Debug</BT_BuildType>
         <UWP_DelphiLogo44>resources\Icons\VDesigner_44.png</UWP_DelphiLogo44>
         <UWP_DelphiLogo150>resources\Icons\VDesigner_150.png</UWP_DelphiLogo150>
-        <VerInfo_Release>1</VerInfo_Release>
-        <VerInfo_Keys>CompanyName=Vallenta Studio;FileDescription=Vallenta Designer - visual designer for dfm-form files;FileVersion=0.8.1.0;InternalName=VallentaDesigner;LegalCopyright=Copyright (c) 2026 Michael Stagge (Vallenta Studio);LegalTrademarks=;OriginalFilename=VallentaDesigner.exe;ProductName=Vallenta Designer;ProductVersion=0.8.1;Comments=Part of Vallenta Studio. MIT licensed - see the LICENSE file;License=MIT</VerInfo_Keys>
+        <VerInfo_Release>2</VerInfo_Release>
+        <VerInfo_Keys>CompanyName=Vallenta Studio;FileDescription=Vallenta Designer - visual designer for dfm-form files;FileVersion=0.8.2.0;InternalName=VallentaDesigner;LegalCopyright=Copyright (c) 2026 Michael Stagge (Vallenta Studio);LegalTrademarks=;OriginalFilename=VallentaDesigner.exe;ProductName=Vallenta Designer;ProductVersion=0.8.2;Comments=Part of Vallenta Studio. MIT licensed - see the LICENSE file;License=MIT</VerInfo_Keys>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
         <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
@@ -91,8 +91,8 @@
         <DCC_DebugInformation>0</DCC_DebugInformation>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
-        <VerInfo_Keys>CompanyName=Vallenta Studio;FileDescription=Vallenta Designer - visual designer for dfm-form files;FileVersion=0.8.1.0;InternalName=VallentaDesigner;LegalCopyright=Copyright (c) 2026 Michael Stagge (Vallenta Studio);LegalTrademarks=;OriginalFilename=VallentaDesigner.exe;ProductName=Vallenta Designer;ProductVersion=0.8.1;Comments=Part of Vallenta Studio. MIT licensed - see the LICENSE file;License=MIT</VerInfo_Keys>
-        <VerInfo_Release>1</VerInfo_Release>
+        <VerInfo_Keys>CompanyName=Vallenta Studio;FileDescription=Vallenta Designer - visual designer for dfm-form files;FileVersion=0.8.2.0;InternalName=VallentaDesigner;LegalCopyright=Copyright (c) 2026 Michael Stagge (Vallenta Studio);LegalTrademarks=;OriginalFilename=VallentaDesigner.exe;ProductName=Vallenta Designer;ProductVersion=0.8.2;Comments=Part of Vallenta Studio. MIT licensed - see the LICENSE file;License=MIT</VerInfo_Keys>
+        <VerInfo_Release>2</VerInfo_Release>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
