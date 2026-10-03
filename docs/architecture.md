@@ -56,8 +56,7 @@ previously and reports a suite that was never rebuilt.
 The runner's own summary is truncated when its output is redirected; the exit
 code is the result, and counting `Success.` lines is the cross-check. Two
 `[warn]` lines reporting `TOleServer` as already known are the expected
-duplicate-class report, and so is the line reporting that `basic_form.dfm` and
-`crossversion_newer_property.dfm` both declare `TForm1`.
+duplicate-class report.
 
 **The suite does not link the whole program.** `Shell.Core`, `Shell.MainWindow`,
 `Shell.RecoveryDialog`, `Shell.AlignPalette`, `Palette.Frame` and
