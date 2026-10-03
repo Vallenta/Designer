@@ -5,7 +5,7 @@ All notable changes to **Vallenta Designer** will be documented in this file. Ve
 ## [0.8.2] - unreleased
 
 ### Added
-- **Window style** — a list at the right end of the alignment bar switches the designer's own windows to any VCL style the Delphi release ships, dark styles included, and keeps the choice for the next start.
+- **Window style** — a list at the right end of the alignment bar switches the designer's own windows to any VCL style shipped with the Delphi release, dark styles included, and keeps the choice for the next start.
 - **Menu designer** — a main menu opens the Menu Designer from its context menu and from its `Items` property in the object inspector.
 - **Menu designer, captions** — a key typed in the Menu Designer edits the item's caption in the object inspector, and Enter returns to the Menu Designer.
 - **Design surface, main menu** — a designed form shows its main menu as a menu bar below its caption.
@@ -13,6 +13,19 @@ All notable changes to **Vallenta Designer** will be documented in this file. Ve
 ### Fixed
 - **Design surface, speed** — the design surface redraws at the speed of the form designer in the Delphi IDE.
 - **Main window, resize** — the panes beside the design surface keep their content while the window is resized.
+- **Forms built on other forms, a class name declared in several form files** — the ancestor is read from the form file named after the unit declaring the class.
+- **Forms built on other forms, a form file copied without its unit** — the unit is read from the search path, and an ancestor without any unit is classified as a form or data module by its own properties.
+- **Linked modules, a data module built on a module copied without its unit** — a reference into such a data module resolves.
+- **Frames, a class name declared in several form files** — the frame is read from the form file named after a unit in the uses clause of the form's unit.
+- **Log, form files of the same name** — the messages about the other form files read for a document show each file's full path.
+- **Log, a class name declared in several form files** — the duplicate is reported once, naming every file, and only when no unit in scope selects one of them.
+- **Opening a form on a long search path** — a form on a search path of 150 directories that refers into two other modules opens in 1.5 s.
+- **Messages pane, speed** — a burst of messages repaints the pane once.
+- **Designer start, speed** — the designer starts about 2.5 s faster with some 250 packages installed.
+- **Opening a form, a message box from a component** — a dialog box shown by a component while its form is read, such as an ActiveX control reporting an error, opens in front of the other windows and is named in the messages pane.
+- **Object inspector, speed** — the component tree of a form with a few hundred components is shown fully expanded without delay.
+- **Messages pane, speed** — a new designer window shows the session's messages without delay.
+- **Search path, a directory listed twice** — the directory is searched once and counted once.
 
 
 ## [0.8.1] - 2026-09-20
