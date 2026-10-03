@@ -2,7 +2,7 @@
 
 All notable changes to **Vallenta Designer** will be documented in this file. Versions follow the file version the executable reports in its version information.
 
-## [0.8.2] - unreleased
+## [0.8.2] - 2026-10-03
 
 ### Added
 - **Window style** — a list at the right end of the alignment bar switches the designer's own windows to any VCL style shipped with the Delphi release, dark styles included, and keeps the choice for the next start.
