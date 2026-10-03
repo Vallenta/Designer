@@ -52,7 +52,7 @@ const
   WM_PERFORMUNDO = WM_APP + 1;
   WM_PERFORMREDO = WM_APP + 2;
   // Posted when this window has received a new style. It arrives after every
-  // window recreation the style change posted, the designed form's included.
+  // window recreation posted by the style change, the designed form's included.
   WM_STYLESETTLED = WM_APP + 3;
 
   // FKeptVersion while the recovery journal holds no copy. Must differ from 0,
@@ -231,6 +231,8 @@ type
     procedure FocusDesignSurface;
     procedure DesignerCommandsChanged(Sender: TObject);
     procedure BuildDocument(ALoader: TFormLoader);
+    procedure ReadDocument(ALoader: TFormLoader);
+    procedure DialogShownWhileReading(const ATitle, AText: string);
     procedure HoldPanesStill(AHold: Boolean);
     procedure PresentDocument(const AState: TLoadedFormState);
     procedure ReleaseDocument;
@@ -261,7 +263,7 @@ type
     procedure HookHost;
     procedure UnhookHost;
     procedure HostWindowProc(var Message: TMessage);
-    // The window the surface box shows the document in: the host form of a
+    // Control showing the document inside the surface box: the host form of a
     // form or a frame, the icon canvas of a data module; nil without one.
     function SurfaceDocument: TControl;
     // Sets the surface box's scroll range to the document and the margin
@@ -273,24 +275,27 @@ type
     procedure SurfaceDeleteClicked(Sender: TObject);
   protected
     // Sets WndParent to 0 and adds WS_EX_APPWINDOW, giving each document its
-    // own taskbar button. The main form is never shown
+    // own taskbar button; the main form is never shown.
     procedure CreateParams(var Params: TCreateParams); override;
-    // Keeps the window placement across the recreation a style change makes:
-    // the new window of a maximized form starts without its normal bounds.
+    // Keeps the window placement across the window recreation caused by a
+    // style change: the new window of a maximized form starts without its
+    // normal bounds.
     procedure WndProc(var Message: TMessage); override;
     // Sets the surface box's scroll range again after a DPI change: the change
     // scales the range, while the document keeps its size.
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
   public
     // Scrolls the surface box with the wheel over it, sideways with Shift
-    // held; the wheel elsewhere goes to the focused control. The box takes no
-    // wheel of its own, and the wheel of every control reaches this form.
+    // held; the wheel elsewhere goes to the focused control. The box does not
+    // scroll on the wheel itself, and the wheel messages of every control
+    // reach this form.
     procedure MouseWheelHandler(var Message: TMessage); override;
     // ASessionLog is the process-wide log shown in the messages pane beside
     // this window's own; it is stored before the panes are built.
     constructor CreateFor(AOwner: TComponent; ASessionLog: TDesignLog);
-    // Sets the session registry requests are routed through. Must be called
-    // before the first open; the code coupling is built with the document.
+    // Sets the session registry through which requests are routed. Must be
+    // called before the first open; the code coupling is built with the
+    // document.
     procedure UseSessions(ASessions: TSessionRegistry);
     // Loads a form file into the surface, replacing any open document.
     // AFileName is stored as given; callers pass an absolute path. AQuietly
@@ -322,11 +327,11 @@ type
     procedure MarkSettled;
     // True once MarkSettled ran.
     property Settled: Boolean read FSettled;
-    // Form files this document draws on besides its own: ancestor forms and
+    // Form files read for this document besides its own: ancestor forms and
     // frame files, each an absolute path. Empty while no document is loaded.
     property SourceFiles: TArray<TSourceFile> read FSourceFiles;
-    // Class name the form file declares, not the design stub's; empty while
-    // no document is loaded.
+    // Class name declared in the form file, not the design stub's; empty
+    // while no document is loaded.
     function RootClassName: string;
     // Root classification: form, frame, or data module.
     property RootKind: TDesignRootClass read FRootKind;
@@ -374,6 +379,7 @@ uses
   System.Math,
   System.UITypes,
   Vcl.Dialogs,
+  Vallenta.FormEditor.Core.RaisedDialogs,
   Vallenta.FormEditor.Core.Settings,
   Vallenta.FormEditor.Packages.ManagerDialog;
 
@@ -381,8 +387,8 @@ const
   // Registry key below the settings root; one layout for all windows.
   LayoutSettingsKey = 'Layout';
 
-  // Room a restored pane leaves for what it sits beside, in design-time
-  // pixels; RestoreLayout scales each through ScaleValue.
+  // Minimum space a restored pane leaves for its neighbouring area, in
+  // design-time pixels; RestoreLayout scales each through ScaleValue.
   MinSurfaceWidth = 240;
   MinSurfaceHeight = 160;
   MinTabsHeight = 120;
@@ -631,7 +637,7 @@ begin
   FSurfaceBoxWindowProc := DesignSurfaceBox.WindowProc;
   DesignSurfaceBox.WindowProc := SurfaceBoxWindowProc;
   // A computed range counts only visible children, and a designed form keeps
-  // the False its file carries in Visible; UpdateSurfaceRange sets the range.
+  // Visible = False as stored in its file; UpdateSurfaceRange sets the range.
   DesignSurfaceBox.AutoScroll := False;
 end;
 
@@ -799,9 +805,9 @@ begin
 end;
 
 // The VCL style frames the host with a window region, and Windows routes
-// mouse input through the placement that region had when it was set: a
+// mouse input by the placement of that region at the time it was set: a
 // resize or a new region refreshes it, a pure move of the host or of a window
-// above it does not. SWP_FRAMECHANGED has the frame set its region again.
+// above it does not. SWP_FRAMECHANGED makes the frame set its region again.
 procedure TMainDesignerForm.RenewInputMapping;
 
   procedure Renew(AWindow: HWND);
@@ -840,9 +846,9 @@ begin
     RenewInputMapping;
 end;
 
-// The box carries the host along when a pane beside it changes size or the
-// layout is restored, and the host receives no message for that. A size loop
-// is left to WMExitSizeMove, as for the window itself.
+// The box moves the host when a pane beside it changes size or the layout is
+// restored, and the host receives no message for that. A size loop is left to
+// WMExitSizeMove, as for the window itself.
 procedure TMainDesignerForm.SurfaceBoxWindowProc(var Message: TMessage);
 begin
   FSurfaceBoxWindowProc(Message);
@@ -893,7 +899,7 @@ begin
 end;
 
 // The bounds are read as BoundsRect: the Left and Top of a designed form
-// report the position its file stores, not the one in the box.
+// report the position stored in its file, not the one in the box.
 procedure TMainDesignerForm.UpdateSurfaceRange;
 var
   Document: TControl;
@@ -977,7 +983,8 @@ begin
     ALoader.LoadedState);
   FDesigner.AdoptLinkedModules(ALoader.ExtractLinkedModules);
   // Guarded before the inspector attaches, so that its grids come up
-  // read-only; a save could otherwise drop the lines the load left unresolved.
+  // read-only; a save could otherwise drop the lines left unresolved by the
+  // load.
   if (Length(ALoader.UnresolvedReferences) > 0) and not FGuardLifted then
   begin
     FDesigner.GuardReadOnly;
@@ -1003,6 +1010,28 @@ begin
     FCouplingObject.Resume(FDesigner.DesignedFields);
 end;
 
+// Runs BuildDocument with every dialog box shown by component code brought to
+// the front: the designer usually runs behind the editor that requested the
+// form, where such a box would block the load unnoticed.
+procedure TMainDesignerForm.ReadDocument(ALoader: TFormLoader);
+begin
+  BeginRaisingDialogs(DialogShownWhileReading);
+  try
+    BuildDocument(ALoader);
+  finally
+    EndRaisingDialogs;
+  end;
+end;
+
+procedure TMainDesignerForm.DialogShownWhileReading(const ATitle,
+  AText: string);
+begin
+  FLog.AddFmt(lsWarn, 'a component showed the message "%s: %s" while %s ' +
+    'was read - the box is brought in front of the other windows, and ' +
+    'reading goes on once it is answered',
+    [ATitle, AText, ExtractFileName(FFileName)]);
+end;
+
 procedure TMainDesignerForm.OpenDesignFile(const AFileName: string;
   AQuietly: Boolean);
 var
@@ -1015,7 +1044,7 @@ begin
   try
     try
       Loader.Prepare(AFileName);
-      BuildDocument(Loader);
+      ReadDocument(Loader);
       FDesigner.LogDpi;
     except
       on E: Exception do
@@ -1050,7 +1079,7 @@ begin
       FLog.AddFmt(lsInfo, 'recovering %s from an earlier session''s copy',
         [AFileName]);
       Loader.PrepareRecovered(ARecoveryFile, State, AFileName);
-      BuildDocument(Loader);
+      ReadDocument(Loader);
       FDesigner.LogDpi;
       // Dirty from the start: no state in the history matches the file on
       // disk, so an undo to the bottom must not read as saved.
@@ -1390,7 +1419,7 @@ begin
 end;
 
 // The document is rebuilt rather than patched in place: only a fresh stub at
-// class defaults reverts a property the image does not mention.
+// class defaults reverts a property absent from the image.
 procedure TMainDesignerForm.RestoreDocument(Sender: TObject;
   ASnapshot: TDocumentSnapshot);
 var
@@ -1409,7 +1438,7 @@ begin
       HoldPanesStill(True);
       try
         ReleaseDocument;
-        BuildDocument(Loader);
+        ReadDocument(Loader);
         // AdoptPreserved frees the model it replaces; the snapshot must keep
         // its own for a later restore.
         FDesigner.AdoptPreserved(ASnapshot.Preserved.Clone);
@@ -1611,8 +1640,8 @@ begin
   FAlignPalette.Visible := not FAlignPalette.Visible;
 end;
 
-// The strip carries no designer reference; the window it belongs to runs the
-// command the pressed cell names.
+// The strip holds no designer reference; this window runs the command named by
+// the pressed cell.
 procedure TMainDesignerForm.AlignPaletteAction(Sender: TObject;
   AHorizontal: TAlignHorizontal; AVertical: TAlignVertical);
 begin
@@ -1620,17 +1649,17 @@ begin
     FDesigner.AlignSelection(AHorizontal, AVertical);
 end;
 
-// The strip shows what the selection allows and has to follow it. A form
-// initiates only its top-most menu items on idle, and those carry no action
-// here, so the action-update cycle reaches this window when a menu opens and
-// at no other time - which is never, for a strip that is always on screen.
+// The strip shows which commands the selection allows and is refreshed on
+// every change. On idle a form updates the actions of its top-level menu items
+// only, which carry no action here, so the action-update cycle reaches this
+// window only when a menu opens.
 procedure TMainDesignerForm.DesignerCommandsChanged(Sender: TObject);
 begin
   FAlignPalette.RefreshCommands;
 end;
 
-// Each cell is asked for itself: centering in the container reaches a lone
-// control, where aligning to the reference needs a second one.
+// Each cell is queried separately: centering in the container applies to a
+// single control, while aligning to a reference needs a second one.
 procedure TMainDesignerForm.AlignPaletteQuery(Sender: TObject;
   AHorizontal: TAlignHorizontal; AVertical: TAlignVertical;
   var AEnabled: Boolean);

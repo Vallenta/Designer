@@ -2,7 +2,7 @@
     <Import Project="VallentaDesigner.Common.props"/>
     <PropertyGroup>
         <ProjectGuid>{B7E3D5A1-4C2F-4E8A-9D16-3F5A82C90D47}</ProjectGuid>
-        <ProjectVersion>20.4</ProjectVersion>
+        <ProjectVersion>20.5</ProjectVersion>
         <FrameworkType>VCL</FrameworkType>
         <MainSource>VallentaDesigner.dpr</MainSource>
         <Base>True</Base>
@@ -109,6 +109,7 @@
         <DCCReference Include="src\Core\Vallenta.FormEditor.Core.FieldLedger.pas"/>
         <DCCReference Include="src\Core\Vallenta.FormEditor.Core.Coupling.pas"/>
         <DCCReference Include="src\Core\Vallenta.FormEditor.Core.Recovery.pas"/>
+        <DCCReference Include="src\Core\Vallenta.FormEditor.Core.RaisedDialogs.pas"/>
         <DCCReference Include="src\Streaming\Vallenta.FormEditor.Streaming.EventNames.pas"/>
         <DCCReference Include="src\Surface\Vallenta.FormEditor.Surface.Handles.pas"/>
         <DCCReference Include="src\Surface\Vallenta.FormEditor.Surface.Guides.pas"/>

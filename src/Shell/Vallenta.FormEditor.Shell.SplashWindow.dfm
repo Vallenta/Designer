@@ -13,7 +13,6 @@ object SplashForm: TSplashForm
   Font.Height = -15
   Font.Name = 'Segoe UI'
   Font.Style = []
-  FormStyle = fsStayOnTop
   Position = poScreenCenter
   Scaled = False
   StyleElements = []

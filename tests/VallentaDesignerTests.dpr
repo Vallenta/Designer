@@ -16,7 +16,7 @@ program VallentaDesignerTests;
 
 {$APPTYPE CONSOLE}
 // DUnitX finds fixtures through RTTI at run time; without this directive the
-// linker strips types no code references and those fixtures never run.
+// linker strips types not referenced by code, and those fixtures never run.
 {$STRONGLINKTYPES ON}
 
 uses
@@ -38,6 +38,8 @@ uses
   Vallenta.FormEditor.Tests.LoadedClasses in 'Vallenta.FormEditor.Tests.LoadedClasses.pas',
   Vallenta.FormEditor.Tests.SearchPath in 'Vallenta.FormEditor.Tests.SearchPath.pas',
   Vallenta.FormEditor.Tests.LinkedModules in 'Vallenta.FormEditor.Tests.LinkedModules.pas',
+  Vallenta.FormEditor.Tests.ClassIndex in 'Vallenta.FormEditor.Tests.ClassIndex.pas',
+  Vallenta.FormEditor.Tests.RaisedDialogs in 'Vallenta.FormEditor.Tests.RaisedDialogs.pas',
   Vallenta.FormEditor.Tests.Log in 'Vallenta.FormEditor.Tests.Log.pas',
   Vallenta.FormEditor.Tests.Palette in 'Vallenta.FormEditor.Tests.Palette.pas',
   Vallenta.FormEditor.Tests.Layout in 'Vallenta.FormEditor.Tests.Layout.pas',

@@ -7,7 +7,7 @@
 program VallentaDesigner;
 
 // Process entry point. Two starts: --serve starts the resident core without
-// a document and waits for connections on that pipe; a file name, or the
+// a document and waits for connections on its named pipe; a file name, or the
 // file dialog when none was given, opens that form file, or hands it to the
 // process already holding the single-instance claim and exits.
 //
@@ -33,6 +33,7 @@ uses
   Vallenta.FormEditor.Core.FieldLedger in 'src\Core\Vallenta.FormEditor.Core.FieldLedger.pas',
   Vallenta.FormEditor.Core.Coupling in 'src\Core\Vallenta.FormEditor.Core.Coupling.pas',
   Vallenta.FormEditor.Core.Recovery in 'src\Core\Vallenta.FormEditor.Core.Recovery.pas',
+  Vallenta.FormEditor.Core.RaisedDialogs in 'src\Core\Vallenta.FormEditor.Core.RaisedDialogs.pas',
   Vallenta.FormEditor.Streaming.EventNames in 'src\Streaming\Vallenta.FormEditor.Streaming.EventNames.pas',
   Vallenta.FormEditor.Surface.Handles in 'src\Surface\Vallenta.FormEditor.Surface.Handles.pas',
   Vallenta.FormEditor.Surface.Guides in 'src\Surface\Vallenta.FormEditor.Surface.Guides.pas',
