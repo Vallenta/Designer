@@ -7,10 +7,10 @@
 unit Vallenta.FormEditor.Tests.LoadedClasses;
 
 // Ancestor class names resolved from the classes present in this process:
-// LoadedClass, LoadedAncestorClass, and a TAncestorChain over form files
-// that have no companion .pas unit beside them. TProbeLoadedBase and
-// TProbeLoadedChild stand in for form classes a loaded design package would
-// supply.
+// LoadedClass, LoadedAncestorClass, and TAncestorChain over form files without
+// a companion .pas unit, including the choice among several declaring files
+// by the unit of a loaded class. TProbeLoadedBase and TProbeLoadedChild stand
+// in for form classes supplied by a loaded design package.
 //
 // Setup registers TProbeRegistered in the streaming registry and creates two
 // directories under the temp path; TearDown unregisters the class and
@@ -65,6 +65,10 @@ type
     procedure AnAncestorWithNoUnitBesideItIsResolved;
     [Test]
     procedure AnAncestorThatIsNeitherLoadedNorBesideAUnitIsRefused;
+    // Two files declare the loaded base class; the file named after the
+    // class's unit is taken although the other comes first in search order.
+    [Test]
+    procedure TheUnitOfALoadedAncestorPicksItsFile;
   end;
 
 implementation
@@ -78,6 +82,8 @@ uses
   Vallenta.FormEditor.Streaming.RootClassifier;
 
 const
+  // Name of this unit, in which the probe classes are compiled. A mismatch
+  // makes TheUnitHintFindsTheClassInThatUnit pass without testing the hint.
   ThisUnit = 'Vallenta.FormEditor.Tests.LoadedClasses';
 
   // Text form fixtures for the probe classes. Only the first line is parsed
@@ -98,7 +104,19 @@ const
     '  TextHeight = 15'#13#10 +
     'end'#13#10;
 
-  // Same shape for class names no unit in this executable declares.
+  // Another form of the same class name, as an unrelated project would
+  // declare it.
+  DecoyBaseDfm =
+    'object DecoyForm: TProbeLoadedBase'#13#10 +
+    '  Left = 0'#13#10 +
+    '  Top = 0'#13#10 +
+    '  Caption = ''Decoy'''#13#10 +
+    '  ClientHeight = 120'#13#10 +
+    '  ClientWidth = 200'#13#10 +
+    '  TextHeight = 15'#13#10 +
+    'end'#13#10;
+
+  // Same shape for class names not declared by any unit in this executable.
   StrangerBaseDfm =
     'object StrangerBaseForm: TProbeStrangerBase'#13#10 +
     '  Left = 0'#13#10 +
@@ -143,8 +161,8 @@ end;
 procedure TLoadedClassesTests.TheParentOfALoadedClassIsNamed;
 begin
   // TProbeLoadedBase and TProbeLoadedChild must be referenced by code
-  // somewhere in the suite: smart linking drops a class nothing references,
-  // and its RTTI with it.
+  // somewhere in the suite: smart linking drops an unreferenced class, and its
+  // RTTI with it.
   Assert.AreEqual(TProbeLoadedBase, TClass(TProbeLoadedChild.ClassParent));
   Assert.AreEqual('TProbeLoadedBase',
     LoadedAncestorClass('TProbeLoadedChild'));
@@ -170,9 +188,6 @@ end;
 
 procedure TLoadedClassesTests.TheUnitHintFindsTheClassInThatUnit;
 begin
-  // ThisUnit must match the unit name, or the qualified lookup misses and
-  // the RTTI walk supplies the ancestor instead - the assertion passes
-  // either way.
   Assert.AreEqual('TProbeLoadedBase',
     LoadedAncestorClass('TProbeLoadedChild', ThisUnit));
 end;
@@ -226,17 +241,48 @@ begin
     Chain := TAncestorChain.Create(nil, Index);
     try
       // Neither stranger class is compiled in and no .pas file is written,
-      // so the message must name both failed sources: a loaded package and
-      // the unit beside StrangerChild.pas.
+      // so the message must name the file and both failed sources: a loaded
+      // package and a unit StrangerChild.pas, beside it or on the path.
       Assert.WillRaiseWithMessage(
         procedure
         begin
           Chain.Resolve(ChildFile, 'TProbeStrangerChild');
         end,
         EAncestorChainError,
-        '"TProbeStrangerChild" is built on another form, and neither a ' +
-        'loaded package nor the unit beside StrangerChild.pas says which ' +
-        'one. The designer needs it to read the form.');
+        '"TProbeStrangerChild" in ' + ChildFile + ' is built on another ' +
+        'form, and neither a loaded package nor a unit StrangerChild.pas ' +
+        'beside it or on the search path says which one. The designer ' +
+        'needs it to read the form.');
+    finally
+      Chain.Free;
+    end;
+  finally
+    Index.Free;
+  end;
+end;
+
+procedure TLoadedClassesTests.TheUnitOfALoadedAncestorPicksItsFile;
+var
+  Index: TDfmClassIndex;
+  Chain: TAncestorChain;
+  ChildFile, Named: string;
+begin
+  // The decoy is in the document's directory, which is searched first, so
+  // only the unit can make the chain pass it over.
+  ChildFile := WriteDfm(FDocumentDir, 'ProbeChild.dfm', ChildDfm);
+  WriteDfm(FDocumentDir, 'Decoy.dfm', DecoyBaseDfm);
+  Named := WriteDfm(FAncestorDir, ThisUnit + '.dfm', BaseDfm);
+  Index := TDfmClassIndex.Create;
+  try
+    Index.SearchIn(FDocumentDir, [FAncestorDir]);
+    Chain := TAncestorChain.Create(nil, Index);
+    try
+      Chain.Resolve(ChildFile, 'TProbeLoadedChild');
+      Assert.AreEqual(1, Length(Chain.Files),
+        'the ancestor form file was not taken into the chain');
+      Assert.AreEqual(Named, Chain.Files[0],
+        'the file named after the unit of the loaded class was passed over');
+      Assert.AreEqual('TForm', Chain.BaseClass);
     finally
       Chain.Free;
     end;

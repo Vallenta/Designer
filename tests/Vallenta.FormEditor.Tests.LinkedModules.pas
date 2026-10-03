@@ -7,16 +7,16 @@
 unit Vallenta.FormEditor.Tests.LinkedModules;
 
 // References from a document into another module, written
-// "XModData.PopupMenuShared": the load resolves the reference through the DFM
-// class index over the document's own directory and the search path, the save
-// writes it back qualified, and a reference into a module no form file
-// declares is written back unchanged.
+// "XModData.PopupMenuShared": resolved on load through the DFM class index
+// over the document's directory and the search path, and written back
+// qualified. A reference into a module declared by no form file is written
+// back unchanged; one into a module built on a copied module also resolves.
 //
-// Both cases create and delete two temp directories; only the resolving case
-// writes the module files into the second one. Both call
-// BeginDesignerSession, which loads the design packages once per process, and
-// the resolving case sets the process-wide per-document search path override
-// that makes the module directory visible to the load and clears it again.
+// Each case creates two temp directories and deletes them again, the built-on
+// case a third for the copy; the missing-module case writes no module file.
+// All cases call BeginDesignerSession, which loads the design packages once
+// per process. The resolving cases set the per-document search path override
+// for the module directories and clear it again.
 
 interface
 
@@ -31,9 +31,15 @@ type
   public
     [Test]
     procedure AReferenceIntoAnotherModuleResolvesAndSavesQualified;
-    // The load also logs a warning naming the module it did not find.
+    // The load also logs a warning naming the missing module.
     [Test]
     procedure AReferenceIntoAMissingModuleIsKeptAsWritten;
+    // The module's ancestor is a plain module copied without its unit: no
+    // loaded package declares its class, and no unit is beside its file or on
+    // the search path. The chain ends at that file, classified as a data
+    // module.
+    [Test]
+    procedure AReferenceIntoAModuleBuiltOnACopiedModuleResolves;
   end;
 
 implementation
@@ -55,6 +61,7 @@ uses
   Vallenta.FormEditor.Tests.Environment;
 
 const
+  // Form files and units written by the cases.
   ReferenceLine = 'PopupMenu = XModData.PopupMenuShared';
 
   HostDfm =
@@ -106,6 +113,35 @@ const
     'implementation'#13#10 +
     'end.'#13#10;
 
+  DerivedReferenceLine = 'PopupMenu = XModChild.PopupMenuShared';
+
+  // The referenced module declares no component of its own; the popup menu is
+  // inherited from its ancestor module.
+  DerivedModuleDfm =
+    'inherited XModChild: TXModChild'#13#10 +
+    'end'#13#10;
+
+  DerivedModuleUnit =
+    'unit xmod_child;'#13#10 +
+    'interface'#13#10 +
+    'uses System.Classes, xmod_base;'#13#10 +
+    'type'#13#10 +
+    '  TXModChild = class(TXModBase)'#13#10 +
+    '  end;'#13#10 +
+    'implementation'#13#10 +
+    'end.'#13#10;
+
+  // Written into the copy directory only, and no unit of this name exists.
+  CopiedBaseDfm =
+    'object XModBase: TXModBase'#13#10 +
+    '  Height = 150'#13#10 +
+    '  Width = 215'#13#10 +
+    '  object PopupMenuShared: TPopupMenu'#13#10 +
+    '    Left = 40'#13#10 +
+    '    Top = 32'#13#10 +
+    '  end'#13#10 +
+    'end'#13#10;
+
 procedure BuildWorld(AWithModule: Boolean;
   out ADocDir, AModuleDir, ADocFile: string);
 begin
@@ -127,6 +163,22 @@ procedure DropWorld(const ADocDir, AModuleDir: string);
 begin
   TDirectory.Delete(ADocDir, True);
   TDirectory.Delete(AModuleDir, True);
+end;
+
+// The host refers into xmod_child, which is built on xmod_base; the base's
+// form file is the only file in ACopyDir.
+procedure BuildDerivedWorld(out ADocDir, AModuleDir, ACopyDir, ADocFile: string);
+begin
+  BuildWorld(False, ADocDir, AModuleDir, ADocFile);
+  ACopyDir := TPath.Combine(TPath.GetTempPath, 'vsfe_linked_copy');
+  TDirectory.CreateDirectory(ACopyDir);
+  TFile.WriteAllText(ADocFile,
+    StringReplace(HostDfm, ReferenceLine, DerivedReferenceLine, []));
+  TFile.WriteAllText(TPath.Combine(AModuleDir, 'xmod_child.dfm'),
+    DerivedModuleDfm);
+  TFile.WriteAllText(TPath.Combine(AModuleDir, 'xmod_child.pas'),
+    DerivedModuleUnit);
+  TFile.WriteAllText(TPath.Combine(ACopyDir, 'xmod_base.dfm'), CopiedBaseDfm);
 end;
 
 function Occurrences(const AText, APiece: string): Integer;
@@ -246,6 +298,39 @@ begin
     Assert.IsTrue(Warned, 'the missing module was not named in a warning');
   finally
     DropWorld(DocDir, ModuleDir);
+  end;
+end;
+
+procedure TLinkedModuleTests.AReferenceIntoAModuleBuiltOnACopiedModuleResolves;
+var
+  DocDir, ModuleDir, CopyDir, DocFile, ResolvedTo, Saved, Trace: string;
+  Log: TDesignLog;
+  I: Integer;
+begin
+  BeginDesignerSession;
+  BuildDerivedWorld(DocDir, ModuleDir, CopyDir, DocFile);
+  try
+    NoteSearchPathFor(DocFile, [ModuleDir, CopyDir]);
+    try
+      Log := TDesignLog.Create;
+      try
+        Saved := LoadAndSave(DocFile, Log, ResolvedTo);
+        Trace := '';
+        for I := 0 to Log.Count - 1 do
+          Trace := Trace + sLineBreak + '      ' + FormatLogLine(Log[I]);
+      finally
+        Log.Free;
+      end;
+      Assert.AreEqual('XModChild.PopupMenuShared', ResolvedTo,
+        'the reference into the built-on module did not resolve' + Trace);
+      Assert.AreEqual(1, Occurrences(Saved, DerivedReferenceLine),
+        'the qualified reference was not written back exactly once');
+    finally
+      NoteSearchPathFor(DocFile, nil);
+    end;
+  finally
+    DropWorld(DocDir, ModuleDir);
+    TDirectory.Delete(CopyDir, True);
   end;
 end;
 

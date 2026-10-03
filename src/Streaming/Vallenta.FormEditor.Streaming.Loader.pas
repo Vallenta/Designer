@@ -46,18 +46,19 @@ type
     ActiveControlName: string;
   end;
 
-  // The stub a document is designed in. Root is the designed component; a
-  // form is its own HostForm, a frame is parented into a chrome-only host
-  // form, and a data module has no window, so HostForm stays nil.
+  // Stub root of a document being designed, and its host form. Root is the
+  // designed component; a form is its own HostForm, a frame is parented into
+  // a chrome-only host form, and a data module has no window, so HostForm
+  // stays nil.
   TDesignDocument = record
     Root: TComponent;
     HostForm: TCustomForm;
   end;
 
   // Another module loaded so that the document's dotted references resolve,
-  // e.g. "DataModuleEZI.DataSourceOPKreditoren". Loaded for its components
-  // only: never shown, never saved. EventMap interns the handler names those
-  // components hold markers for and must outlive them.
+  // e.g. "DataModule1.DataSource1". Loaded for its components only: never
+  // shown, never saved. EventMap interns the handler names referenced by the
+  // event markers of those components and must outlive them.
   TLinkedModule = record
     ModuleName: string;
     FileName: string;
@@ -82,7 +83,7 @@ type
   end;
 
   // Loads one form file. A Prepare call classifies the root; StreamInto then
-  // fills the stub the caller created for that kind.
+  // fills the stub created by the caller for that kind.
   TFormLoader = class
   private
     FLog: TDesignLog;
@@ -119,6 +120,10 @@ type
     FFileName: string;
     FRootObjectName: string;
     FQuiet: Boolean;
+    // The units in scope of the document and of its ancestor forms, read once
+    // on the first reference into another module.
+    FModuleHints: TArray<string>;
+    FModuleHintsRead: Boolean;
     procedure NoteOtherFile(const AFileName: string; AKind: TSourceKind);
     function ToBinaryDfm(AInput: TStream; const AWhat: string): TMemoryStream;
     function ReadFileToBinaryDfm(const FileName: string): TMemoryStream;
@@ -141,9 +146,11 @@ type
       var Handled: Boolean);
     procedure HandleSetName(Reader: TReader; Component: TComponent;
       var Name: string);
-    procedure HandleClassClash(const AClassName, AKept, ADropped: string);
+    procedure HandleClassClash(const AName: string; AByInstance: Boolean;
+      const AFiles: TArray<string>);
     procedure HandleFindComponentInstance(Reader: TReader; const Name: string;
       var Instance: Pointer);
+    function ModuleUnitHints: TArray<string>;
     function LinkedModuleRoot(const AModuleName: string): TComponent;
     procedure DropLinkedModules;
     procedure CollectUnresolvedReferences(ARoot: TComponent);
@@ -157,7 +164,7 @@ type
     constructor Create(ALog: TDesignLog);
     destructor Destroy; override;
     // Reads the file and determines the root kind. Builds no components; the
-    // caller creates the document that kind requires.
+    // caller creates the document for that kind.
     procedure Prepare(const FileName: string);
     // Prepares a reload from an undo snapshot of the live document. The image
     // holds no root kind and carries the stub's class name, so both come from
@@ -182,8 +189,8 @@ type
     // before Prepare; ADirectories is copied.
     procedure InheritSearchPath(const ADirectories: TArray<string>);
     // Streams the prepared file into ARoot, the stub built for RootKind, and
-    // captures the state the save side needs. Raises EFormLoadError when no
-    // Prepare call ran.
+    // captures the state needed by the save side. Raises EFormLoadError when
+    // no Prepare call ran.
     procedure StreamInto(ARoot: TComponent);
     // Transfers ownership of the interned event handler names. The map must
     // outlive the document: saving resolves handler markers through it.
@@ -195,14 +202,14 @@ type
     // against the untouched instance held there and takes the declared class
     // names from it.
     function ExtractFrames: TFrameInstances;
-    // Transfers ownership of the ancestor-only document a descendant is
-    // diffed against when saving. Root is nil when the document has no
+    // Transfers ownership of the ancestor-only document against which a
+    // descendant is diffed when saving. Root is nil when the document has no
     // ancestor.
     function ExtractAncestor: TDesignDocument;
     // Transfers ownership of the linked modules. They must outlive the
     // document and the ancestor, whose components hold references into them.
     function ExtractLinkedModules: TArray<TLinkedModule>;
-    // References ("Module.Component") the load could not resolve; the shell
+    // References ("Module.Component") left unresolved by the load; the shell
     // guards the document read-only while any remain. Filled by StreamInto.
     property UnresolvedReferences: TArray<string> read FUnresolvedReferences;
     // Interned event handler names; nil after ExtractEventMap.
@@ -217,7 +224,7 @@ type
     property LoadedState: TLoadedFormState read FLoadedState;
     // Root kind, set by whichever Prepare call ran.
     property RootKind: TDesignRootClass read FLoadedState.RootKind;
-    // Form files this document draws on besides its own: ancestors and frame
+    // Form files read for this document besides its own: ancestors and frame
     // files, each an absolute path listed once.
     property SourceFiles: TArray<TSourceFile> read FOtherFiles;
   end;
@@ -274,6 +281,7 @@ uses
   Vallenta.FormEditor.Core.SearchPath;
 
 type
+  // Access to protected members of TComponent and TCustomForm.
   TComponentAccess = class(TComponent);
   TFormAccess = class(TCustomForm);
 
@@ -544,8 +552,18 @@ begin
 end;
 
 procedure TFormLoader.PlanFrames(const AText: string);
+var
+  FrameClasses: TArray<string>;
+  Declaration: TUnitDeclaration;
 begin
-  FFrames.RegisterInlineClasses(InlineClassesIn(AText));
+  FrameClasses := InlineClassesIn(AText);
+  if Length(FrameClasses) = 0 then
+    Exit;
+  // A frame class is named where the form class declares a field of it, so
+  // the units in scope there pick among files declaring a class of the name.
+  ReadUnitDeclaration(ChangeFileExt(FFileName, '.pas'),
+    FLoadedState.RootClassName, Declaration);
+  FFrames.RegisterInlineClasses(FrameClasses, Declaration.UsedUnits);
 end;
 
 procedure TFormLoader.RefuseFramesInDescendant(const AText: string);
@@ -600,9 +618,9 @@ begin
       raise;
     end;
   end;
-  // The reader sets the inline flag only on instances it creates itself, and
-  // the writer emits a frame instance rather than a plain block only for a
-  // flagged one.
+  // The reader sets the inline flag only on instances created by the reader
+  // itself, and the writer emits a frame instance rather than a plain block
+  // only for a flagged one.
   TComponentAccess(Component).SetInline(True);
 end;
 
@@ -614,11 +632,20 @@ begin
   FCurrentComponent := Name;
 end;
 
-procedure TFormLoader.HandleClassClash(const AClassName, AKept, ADropped: string);
+procedure TFormLoader.HandleClassClash(const AName: string; AByInstance: Boolean;
+  const AFiles: TArray<string>);
+var
+  Others: string;
 begin
-  FLog.AddFmt(lsWarn, 'both %s and %s declare "%s"; %s is the one used',
-    [ExtractFileName(AKept), ExtractFileName(ADropped), AClassName,
-     ExtractFileName(AKept)]);
+  Others := string.Join(', ', Copy(AFiles, 1, MaxInt));
+  if AByInstance then
+    FLog.AddFmt(lsWarn, '%d form files have a root named "%s", and no unit ' +
+      'in scope names one of them - %s is read, not %s',
+      [Length(AFiles), AName, AFiles[0], Others])
+  else
+    FLog.AddFmt(lsWarn, '%d form files declare "%s", and no unit in scope ' +
+      'names one of them - %s is taken, not %s',
+      [Length(AFiles), AName, AFiles[0], Others]);
 end;
 
 procedure TFormLoader.HandleFindComponentInstance(Reader: TReader;
@@ -633,6 +660,33 @@ begin
   Module := LinkedModuleRoot(Copy(Name, 1, Dot - 1));
   if Module <> nil then
     Instance := FindNestedComponent(Module, Copy(Name, Dot + 1, MaxInt));
+end;
+
+function TFormLoader.ModuleUnitHints: TArray<string>;
+var
+  Sources, Found: TArray<string>;
+  Source, UnitFile: string;
+begin
+  if FModuleHintsRead then
+    Exit(FModuleHints);
+  FModuleHintsRead := True;
+  FModuleHints := nil;
+  // A reference into a module is written by the document or by one of its
+  // ancestor forms, and the unit of that form uses the module's unit.
+  Sources := [FFileName] + FChain.Files;
+  for Source in Sources do
+  begin
+    UnitFile := ChangeFileExt(Source, '.pas');
+    if not FileExists(UnitFile) then
+    begin
+      Found := FClassIndex.UnitFiles(ChangeFileExt(ExtractFileName(Source), ''));
+      if Length(Found) = 0 then
+        Continue;
+      UnitFile := Found[0];
+    end;
+    FModuleHints := FModuleHints + ReadUsedUnits(UnitFile);
+  end;
+  Result := FModuleHints;
 end;
 
 function TFormLoader.LinkedModuleRoot(const AModuleName: string): TComponent;
@@ -666,7 +720,7 @@ begin
       [AncestorDepthLimit, AModuleName]);
     Exit;
   end;
-  FileName := FClassIndex.FileForInstance(AModuleName);
+  FileName := FClassIndex.FileForInstance(AModuleName, ModuleUnitHints);
   if FileName = '' then
   begin
     FLinkedFailed.Add(AModuleName);
@@ -682,7 +736,10 @@ begin
       Nested := TFormLoader.Create(FLog);
       try
         Nested.FLinkedParent := Self;
-        Nested.InheritSearchPath(FClassIndex.ExtraDirectories);
+        // The module's own directory is searched first; this document's
+        // directory and search path follow the module's own search path.
+        Nested.InheritSearchPath([FClassIndex.Directory] +
+          FClassIndex.ExtraDirectories);
         Nested.PrepareLinked(FileName);
         Module.Document := CreateDesignDocument(Nested.RootKind);
         try
@@ -697,7 +754,7 @@ begin
         FLinkedModules := FLinkedModules + [Module];
         if not FQuiet then
           FLog.AddFmt(lsInfo, 'linked module "%s" is read from %s',
-            [AModuleName, ExtractFileName(FileName)]);
+            [AModuleName, Module.FileName]);
         Result := Module.Document.Root;
       finally
         Nested.Free;
@@ -708,7 +765,7 @@ begin
         FLinkedFailed.Add(AModuleName);
         FLog.AddFmt(lsWarn, 'the module "%s" could not be loaded from %s - ' +
           'its references are kept as written: %s',
-          [AModuleName, ExtractFileName(FileName), E.Message]);
+          [AModuleName, ExpandFileName(FileName), E.Message]);
       end;
     end;
   finally
@@ -800,7 +857,9 @@ end;
 
 procedure TFormLoader.BuildPristineAncestor;
 begin
-  if Length(FChain.Files) = 0 then
+  // A linked module is never saved, so nothing is measured against its
+  // ancestor forms.
+  if (Length(FChain.Files) = 0) or (FLinkedParent <> nil) then
     Exit;
   FAncestor := CreateDesignDocument(FLoadedState.RootKind);
   EnterDesignMode(FAncestor.Root);
@@ -1232,7 +1291,7 @@ begin
     ARoot.Name := FRootObjectName;
 
   FCurrentComponent := FRootObjectName;
-  // One bracket spans the document and every frame file it draws on, so that
+  // One bracket spans the document and every frame file read for it, so that
   // Loaded fires only after all of them streamed; a frame instance is built
   // before the host block's own property lines are read.
   BeginGlobalLoading;

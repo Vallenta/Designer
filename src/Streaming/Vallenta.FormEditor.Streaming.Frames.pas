@@ -7,14 +7,14 @@
 unit Vallenta.FormEditor.Streaming.Frames;
 
 // Frame classes of one document, the form file each is declared in, the live
-// instances, and one untouched instance per class kept as the diff base a
-// save writes against. A host form file records only what an instance
-// differs in from the frame's own file, so a load builds the instance from
-// that file before the host's properties are read over it.
+// instances, and one untouched instance per class kept as the diff base for a
+// save. A host form file records only what an instance differs in from the
+// frame's own file, so a load builds the instance from that file before the
+// host's properties are read over it.
 //
 // Streaming is performed by the OnLoadFrame handler, which must be assigned
 // before the first CreateInstance. Destroy frees only the untouched
-// instances; a live instance is owned by the document it streamed into.
+// instances; a live instance is owned by its document.
 
 interface
 
@@ -57,13 +57,17 @@ type
     destructor Destroy; override;
     // Registers each class in AClasses that a form file with a plain
     // "object" root declares; one without such a file stays unregistered.
-    procedure RegisterInlineClasses(const AClasses: TArray<string>);
+    // AUnitNames are the units in scope where the classes are named, in
+    // resolution order; where several files declare a class, the one named
+    // after the first such unit is taken.
+    procedure RegisterInlineClasses(const AClasses: TArray<string>;
+      const AUnitNames: TArray<string>);
     // True when AClassName is a registered frame class.
     function IsFrameClass(const AClassName: string): Boolean;
     // Builds a live instance of ADeclaredClass and records it, plus on first
     // use for that class the untouched instance used as its diff base. The
     // caller sets the inline flag on the result; TReader sets it only on
-    // components it creates itself.
+    // components created by the reader itself.
     function CreateInstance(const ADeclaredClass: string;
       AOwner: TComponent): TComponent;
     // Unregisters a frame class, e.g. after its file failed to stream.
@@ -159,7 +163,8 @@ begin
   Result := FInstances.Count;
 end;
 
-procedure TFrameInstances.RegisterInlineClasses(const AClasses: TArray<string>);
+procedure TFrameInstances.RegisterInlineClasses(const AClasses: TArray<string>;
+  const AUnitNames: TArray<string>);
 var
   DeclaredClass, FileName: string;
 begin
@@ -167,13 +172,12 @@ begin
   begin
     if FFrameClasses.ContainsKey(DeclaredClass) then
       Continue;
-    FileName := FIndex.FileFor(DeclaredClass, [rkObject]);
+    FileName := FIndex.FileFor(DeclaredClass, [rkObject], AUnitNames).FileName;
     if FileName <> '' then
     begin
       FFrameClasses.Add(DeclaredClass, FileName);
       if FLog <> nil then
-        FLog.AddFmt(lsInfo, 'frame "%s" is in %s',
-          [DeclaredClass, ExtractFileName(FileName)]);
+        FLog.AddFmt(lsInfo, 'frame "%s" is in %s', [DeclaredClass, FileName]);
     end
     else if FLog <> nil then
     begin
